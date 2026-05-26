@@ -1,0 +1,300 @@
+/* Vista imprimible — Reporte Ejecutivo (A4 horizontal, una hoja) */
+
+.reporte-ejecutivo-print-root {
+  display: none;
+}
+
+.reporte-ejecutivo-sheet {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 9px;
+  line-height: 1.25;
+  color: #1e293b;
+  background: #fff;
+  width: 297mm;
+  padding: 7mm 9mm;
+  box-sizing: border-box;
+}
+
+.reporte-ejecutivo-sheet h1 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.reporte-ejecutivo-sheet .re-sub {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.reporte-ejecutivo-sheet .re-meta {
+  text-align: right;
+  font-size: 8.5px;
+  color: #475569;
+}
+
+.reporte-ejecutivo-sheet .re-meta strong {
+  color: #0f172a;
+}
+
+.reporte-ejecutivo-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.reporte-ejecutivo-kpi {
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: #f8fafc;
+}
+
+.reporte-ejecutivo-kpi .re-kpi-label {
+  font-size: 7.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.reporte-ejecutivo-kpi .re-kpi-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 1px;
+}
+
+.reporte-ejecutivo-kpi .re-kpi-sub {
+  font-size: 6.5px;
+  line-height: 1.25;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.reporte-ejecutivo-resumen {
+  margin-top: 5px;
+  padding: 5px 7px;
+  background: #f1f5f9;
+  border-left: 3px solid #1e4a6e;
+  font-size: 8.5px;
+  color: #334155;
+}
+
+.reporte-ejecutivo-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.reporte-ejecutivo-cols-3 {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 0.9fr;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.reporte-ejecutivo-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.reporte-ejecutivo-block h2 {
+  font-size: 8.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+  padding: 3px 6px;
+  background: #1e4a6e;
+  color: #fff;
+}
+
+.reporte-ejecutivo-block .re-body {
+  padding: 4px 5px;
+}
+
+.reporte-ejecutivo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 7.5px;
+}
+
+.reporte-ejecutivo-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 2px 3px;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.reporte-ejecutivo-table td {
+  padding: 2px 3px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+
+.reporte-ejecutivo-badge {
+  display: inline-block;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 600;
+}
+
+.reporte-ejecutivo-badge.normal {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.reporte-ejecutivo-badge.atencion {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.reporte-ejecutivo-badge.critico {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.reporte-ejecutivo-badge.baja {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.reporte-ejecutivo-badge.alta {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.reporte-ejecutivo-mini-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.reporte-ejecutivo-mini-kpi {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 7px;
+}
+
+.reporte-ejecutivo-mini-kpi strong {
+  display: block;
+  font-size: 9px;
+  color: #0f172a;
+}
+
+.reporte-ejecutivo-footer {
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 7px;
+  color: #94a3b8;
+  display: flex;
+  justify-content: space-between;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  /* Anular altura mínima del layout de la app (causa página 1 vacía) */
+  body.reporte-ejecutivo-printing,
+  body.reporte-ejecutivo-printing > div,
+  body.reporte-ejecutivo-printing > div > div,
+  body.reporte-ejecutivo-printing main {
+    min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+  }
+
+  /* Ocultar shell de la app: menú, header, configuración, preview */
+  body.reporte-ejecutivo-printing aside,
+  body.reporte-ejecutivo-printing header,
+  body.reporte-ejecutivo-printing .reporte-ejecutivo-no-print {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Solo el bloque de impresión entra al flujo */
+  body.reporte-ejecutivo-printing .reporte-ejecutivo-print-root {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 1 !important;
+    z-index: auto !important;
+    overflow: visible !important;
+    page-break-before: avoid !important;
+    page-break-after: avoid !important;
+    break-before: avoid !important;
+    break-after: avoid !important;
+  }
+
+  body.reporte-ejecutivo-printing .reporte-print,
+  body.reporte-ejecutivo-printing .reporte-print * {
+    visibility: visible !important;
+  }
+
+  body.reporte-ejecutivo-printing .reporte-print {
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    page-break-before: avoid !important;
+    page-break-after: avoid !important;
+    break-before: avoid !important;
+    break-after: avoid !important;
+    break-inside: avoid;
+  }
+
+  body.reporte-ejecutivo-printing .reporte-ejecutivo-sheet {
+    width: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: 5mm 7mm !important;
+    overflow: visible !important;
+    page-break-inside: avoid;
+  }
+}
