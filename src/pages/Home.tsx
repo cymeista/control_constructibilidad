@@ -38,7 +38,7 @@ import {
   Legend,
   Filler,
 } from "chart.js";
-import { Line } from "react-chartjs-2";
+import ChartJsLineFrame from "@/components/ChartJsLineFrame";
 import { format } from "date-fns";
 import { ChevronDown, ChevronRight, StickyNote } from "lucide-react";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
@@ -1141,19 +1141,12 @@ export default function Home() {
                   propuesta del mes.
                 </p>
                 <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
-                  <div
-                    className={`w-full min-w-[280px] max-w-full ${
-                      isBelowMd ? "h-[240px]" : "h-[min(280px,34vh)] min-h-[220px]"
-                    }`}
-                  >
-                    {curvaObjetivoAcumLineData ? (
-                      <Line
-                        key={isBelowMd ? "curva-acum-m" : "curva-acum-d"}
-                        data={curvaObjetivoAcumLineData}
-                        options={lineChartOptionsCurvaAcum}
-                      />
-                    ) : null}
-                  </div>
+                  <ChartJsLineFrame
+                    key={isBelowMd ? "curva-acum-m" : "curva-acum-d"}
+                    data={curvaObjetivoAcumLineData}
+                    options={lineChartOptionsCurvaAcum}
+                    heightPx={isBelowMd ? 240 : 300}
+                  />
                 </div>
               </div>
               <div className="min-w-0 max-w-full overflow-hidden rounded-r12 border border-bdr bg-surface p-4 shadow-sh1 sm:p-5 lg:p-6">
@@ -1168,19 +1161,12 @@ export default function Home() {
                   desglose.
                 </p>
                 <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
-                  <div
-                    className={`w-full min-w-[280px] max-w-full ${
-                      isBelowMd ? "h-[240px]" : "h-[min(280px,34vh)] min-h-[220px]"
-                    }`}
-                  >
-                    {curvaObjetivoMensualLineData ? (
-                      <Line
-                        key={isBelowMd ? "curva-mens-m" : "curva-mens-d"}
-                        data={curvaObjetivoMensualLineData}
-                        options={lineChartOptionsCurvaMensual}
-                      />
-                    ) : null}
-                  </div>
+                  <ChartJsLineFrame
+                    key={isBelowMd ? "curva-mens-m" : "curva-mens-d"}
+                    data={curvaObjetivoMensualLineData}
+                    options={lineChartOptionsCurvaMensual}
+                    heightPx={isBelowMd ? 240 : 300}
+                  />
                 </div>
               </div>
             </div>
