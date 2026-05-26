@@ -25,6 +25,11 @@ import {
   TrendingUp,
   CalendarDays,
   ClipboardList,
+  LineChart,
+  History,
+  Target,
+  Bell,
+  UserCog,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -64,6 +69,69 @@ function useSettings() {
   }, []);
 
   return { settings, update };
+}
+
+/* ─────────── Backup JSON (AppData completo) ─────────── */
+
+const BACKUP_VERSION = 2;
+
+/** Colecciones persistidas en `valtica_data_v1` / AppData. */
+const APP_DATA_COLLECTION_KEYS = [
+  "clientes",
+  "profesionales",
+  "pm_internos",
+  "proyectos",
+  "entregables",
+  "asignaciones_horas",
+  "registro_horas",
+  "pipeline",
+  "carga_mensual",
+  "curvas_objetivo_anual",
+  "historial_redistribuciones_horas",
+  "evaluaciones_desempeno_profesional",
+  "alertas_revisadas",
+] as const;
+
+type AppDataCollectionKey = (typeof APP_DATA_COLLECTION_KEYS)[number];
+
+const BACKUP_COLLECTION_LABELS: Record<AppDataCollectionKey, string> = {
+  clientes: "Clientes",
+  profesionales: "Profesionales",
+  pm_internos: "PM internos",
+  proyectos: "Proyectos",
+  entregables: "Entregables",
+  asignaciones_horas: "Asignaciones de horas",
+  registro_horas: "Registro de Horas",
+  pipeline: "Pipeline",
+  carga_mensual: "Carga Mensual",
+  curvas_objetivo_anual: "Curva objetivo anual",
+  historial_redistribuciones_horas: "Historial redistribuciones",
+  evaluaciones_desempeno_profesional: "Evaluaciones desempeño",
+  alertas_revisadas: "Alertas revisadas",
+};
+
+type AppDataSlice = Record<AppDataCollectionKey, unknown[]>;
+
+function normalizeBackupImport(parsed: Record<string, unknown>): AppDataSlice {
+  const out = {} as AppDataSlice;
+  for (const key of APP_DATA_COLLECTION_KEYS) {
+    const v = parsed[key];
+    out[key] = Array.isArray(v) ? v : [];
+  }
+  return out;
+}
+
+function backupHasRecognizedData(parsed: Record<string, unknown>): boolean {
+  return APP_DATA_COLLECTION_KEYS.some((k) => Array.isArray(parsed[k]));
+}
+
+function warnIfMissingCurvaObjetivo(parsed: Record<string, unknown>): void {
+  const curvas = parsed.curvas_objetivo_anual;
+  if (!Array.isArray(curvas) || curvas.length === 0) {
+    const msg =
+      "Este backup no incluye Curva Objetivo Anual; el Dashboard puede quedar sin curva.";
+    console.warn(`[Valtica backup] ${msg}`);
+  }
 }
 
 /* ─────────── Helpers ─────────── */
@@ -287,36 +355,38 @@ export default function Configuracion() {
   const [confirmText, setConfirmText] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<unknown>(null);
+  const [importCurvaWarning, setImportCurvaWarning] = useState(false);
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const [supabaseUrl, setSupabaseUrl] = useState("");
   const [supabaseKey, setSupabaseKey] = useState("");
 
   /* ── stats ── */
-  const stats = {
+  const stats: Record<AppDataCollectionKey, number> = {
     clientes: data.clientes.length,
     profesionales: data.profesionales.length,
+    pm_internos: data.pm_internos.length,
     proyectos: data.proyectos.length,
     entregables: data.entregables.length,
-    registro_horas: data.registro_horas.length,
     asignaciones_horas: data.asignaciones_horas.length,
+    registro_horas: data.registro_horas.length,
     pipeline: data.pipeline.length,
     carga_mensual: data.carga_mensual.length,
+    curvas_objetivo_anual: data.curvas_objetivo_anual.length,
+    historial_redistribuciones_horas: data.historial_redistribuciones_horas.length,
+    evaluaciones_desempeno_profesional: data.evaluaciones_desempeno_profesional.length,
+    alertas_revisadas: data.alertas_revisadas.length,
   };
 
   /* ── export functions ── */
   const exportAllJSON = useCallback(() => {
+    const collections = normalizeBackupImport(data as unknown as Record<string, unknown>);
     const payload = {
-      clientes: data.clientes,
-      profesionales: data.profesionales,
-      proyectos: data.proyectos,
-      entregables: data.entregables,
-      asignaciones_horas: data.asignaciones_horas,
-      registro_horas: data.registro_horas,
-      pipeline: data.pipeline,
-      carga_mensual: data.carga_mensual,
+      backup_version: BACKUP_VERSION,
+      exported_at: new Date().toISOString(),
+      ...collections,
     };
     downloadBlob(JSON.stringify(payload, null, 2), "valtica_backup.json", "application/json");
-    show("Exportación JSON completada", "success");
+    show("Exportación JSON completada (13 colecciones)", "success");
   }, [data, show]);
 
   const exportCSV = useCallback(
@@ -341,12 +411,24 @@ export default function Configuracion() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const parsed = JSON.parse(String(ev.target?.result || "{}"));
+        const parsed = JSON.parse(String(ev.target?.result || "{}")) as Record<string, unknown>;
         setImportPreview(parsed);
-        show("Archivo cargado correctamente. Revisa la vista previa.", "info");
+        const curvas = parsed.curvas_objetivo_anual;
+        const missingCurva = !Array.isArray(curvas) || curvas.length === 0;
+        setImportCurvaWarning(missingCurva);
+        if (missingCurva) {
+          warnIfMissingCurvaObjetivo(parsed);
+          show(
+            "Archivo cargado. Advertencia: no incluye Curva Objetivo Anual; el Dashboard puede quedar sin curva.",
+            "info",
+          );
+        } else {
+          show("Archivo cargado correctamente. Revisa la vista previa.", "info");
+        }
       } catch {
         show("El archivo no es un JSON válido", "error");
         setImportPreview(null);
+        setImportCurvaWarning(false);
       }
     };
     reader.readAsText(file);
@@ -358,22 +440,13 @@ export default function Configuracion() {
       return;
     }
     try {
-      const keys = [
-        "clientes",
-        "profesionales",
-        "proyectos",
-        "entregables",
-        "asignaciones_horas",
-        "registro_horas",
-        "pipeline",
-        "carga_mensual",
-      ];
-      const valid = keys.some((k) => Array.isArray((importPreview as Record<string, unknown>)[k]));
-      if (!valid) {
+      const raw = importPreview as Record<string, unknown>;
+      if (!backupHasRecognizedData(raw)) {
         show("El JSON no contiene arrays de datos reconocidos", "error");
         return;
       }
-      replaceAppData(importPreview);
+      const normalized = normalizeBackupImport(raw);
+      replaceAppData(normalized);
       show("Datos importados correctamente. Recarga la página para aplicar.", "success");
       setTimeout(() => window.location.reload(), 1500);
     } catch {
@@ -400,17 +473,30 @@ export default function Configuracion() {
     setTimeout(() => window.location.reload(), 1500);
   }, [show]);
 
-  /* ── entity export buttons ── */
-  const exportButtons = [
-    { key: "clientes", label: "Clientes", icon: Building2 },
-    { key: "profesionales", label: "Profesionales", icon: Users },
-    { key: "proyectos", label: "Proyectos", icon: FolderOpen },
-    { key: "entregables", label: "Entregables", icon: FileText },
-    { key: "asignaciones_horas", label: "Asignaciones de horas", icon: ClipboardList },
-    { key: "registro_horas", label: "Registro de Horas", icon: Clock },
-    { key: "pipeline", label: "Pipeline", icon: TrendingUp },
-    { key: "carga_mensual", label: "Carga Mensual", icon: CalendarDays },
-  ] as const;
+  /* ── entity export buttons (CSV + vista previa JSON) ── */
+  const exportButtons: { key: AppDataCollectionKey; label: string; icon: React.ElementType }[] = [
+    { key: "clientes", label: BACKUP_COLLECTION_LABELS.clientes, icon: Building2 },
+    { key: "profesionales", label: BACKUP_COLLECTION_LABELS.profesionales, icon: Users },
+    { key: "pm_internos", label: BACKUP_COLLECTION_LABELS.pm_internos, icon: UserCog },
+    { key: "proyectos", label: BACKUP_COLLECTION_LABELS.proyectos, icon: FolderOpen },
+    { key: "entregables", label: BACKUP_COLLECTION_LABELS.entregables, icon: FileText },
+    { key: "asignaciones_horas", label: BACKUP_COLLECTION_LABELS.asignaciones_horas, icon: ClipboardList },
+    { key: "registro_horas", label: BACKUP_COLLECTION_LABELS.registro_horas, icon: Clock },
+    { key: "pipeline", label: BACKUP_COLLECTION_LABELS.pipeline, icon: TrendingUp },
+    { key: "carga_mensual", label: BACKUP_COLLECTION_LABELS.carga_mensual, icon: CalendarDays },
+    { key: "curvas_objetivo_anual", label: BACKUP_COLLECTION_LABELS.curvas_objetivo_anual, icon: LineChart },
+    {
+      key: "historial_redistribuciones_horas",
+      label: BACKUP_COLLECTION_LABELS.historial_redistribuciones_horas,
+      icon: History,
+    },
+    {
+      key: "evaluaciones_desempeno_profesional",
+      label: BACKUP_COLLECTION_LABELS.evaluaciones_desempeno_profesional,
+      icon: Target,
+    },
+    { key: "alertas_revisadas", label: BACKUP_COLLECTION_LABELS.alertas_revisadas, icon: Bell },
+  ];
 
   return (
     <div className="min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-0">
@@ -490,6 +576,21 @@ export default function Configuracion() {
           {importPreview != null && typeof importPreview === "object" ? (
             <div className="rounded-[8px] border border-bdr bg-[#F7F8FA] p-3">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-[.07em] text-t300">Vista previa:</p>
+              {typeof (importPreview as Record<string, unknown>).backup_version === "number" ? (
+                <p className="mb-2 text-[11px] text-t500">
+                  Backup v{(importPreview as Record<string, unknown>).backup_version as number}
+                  {(importPreview as Record<string, unknown>).exported_at
+                    ? ` · ${String((importPreview as Record<string, unknown>).exported_at)}`
+                    : null}
+                </p>
+              ) : (
+                <p className="mb-2 text-[11px] text-t500">Backup sin metadata (formato anterior)</p>
+              )}
+              {importCurvaWarning ? (
+                <p className="mb-2 rounded-r6 border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-950">
+                  Este backup no incluye Curva Objetivo Anual; el Dashboard puede quedar sin curva.
+                </p>
+              ) : null}
               <div className="space-y-1">
                 {exportButtons.map(({ key, label }) => {
                   const arr = (importPreview as Record<string, unknown>)?.[key];
@@ -532,7 +633,7 @@ export default function Configuracion() {
                     className="rounded-[10px] px-2 py-[2px] font-mono text-[11px] font-semibold"
                     style={{ background: "#E0E7FF", color: "#4F46E5" }}
                   >
-                    {stats[key as keyof typeof stats]}
+                    {stats[key]}
                   </span>
                 </div>
               ))}
