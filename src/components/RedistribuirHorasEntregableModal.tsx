@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -103,6 +103,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
   /** True si el usuario tocó los inputs de horas finales sin recalcular compensación UF automática. */
   const [edicionManualHorasPropuestas, setEdicionManualHorasPropuestas] = useState(false);
   const [ultimoResultadoRedist, setUltimoResultadoRedist] = useState<ResultadoRedistribDestinoCompleto | null>(null);
+  const resultadosPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -148,7 +149,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     }
     const raw = Number(String(horasAAgregarTexto).replace(",", ".").trim());
     if (!Number.isFinite(raw) || raw <= 0) {
-      setErrores(["Indique horas a agregar mayores a 0."]);
+      setErrores(["Indique horas a agregar mayores a 0 (acepta coma o punto decimal)."]);
       setUltimoResultadoRedist(null);
       return;
     }
@@ -158,9 +159,16 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     if (res.codigo === "ok") {
       setHorasEdit(res.propuesta);
       setErrores([]);
+      requestAnimationFrame(() => {
+        resultadosPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } else {
       setHorasEdit(horasEntregableARecord(ent));
-      setErrores([]);
+      setErrores(
+        res.mensajes.length > 0
+          ? res.mensajes
+          : ["No se pudo calcular la redistribución. Revise categoría, horas y disponibilidad en otras categorías."],
+      );
     }
   }, [tarifas, tarifasError, lineas, horasActuales, categoriaDestino, horasAAgregarTexto, ent]);
 
@@ -272,12 +280,14 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                     </Label>
                     <Select
                       value={categoriaDestino}
-                      onValueChange={(v) => setCategoriaDestino(v as AsignacionHoraCategoria)}
+                      onValueChange={(v) => {
+                        if (v) setCategoriaDestino(v as AsignacionHoraCategoria);
+                      }}
                     >
-                      <SelectTrigger className="rounded-r8 font-mono">
+                      <SelectTrigger className="w-full rounded-r8 font-mono">
                         <SelectValue placeholder="Destino" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="z-[300]" position="popper">
                         {CATEGORIAS_REDIST.map((c) => (
                           <SelectItem key={c} value={c} className="font-mono">
                             {c}
@@ -292,11 +302,10 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                     </Label>
                     <Input
                       id="redist-horas-agregar"
-                      type="number"
-                      step={0.1}
-                      min={0}
+                      type="text"
+                      inputMode="decimal"
                       className="max-w-[12rem] rounded-r8 font-mono"
-                      placeholder="Ej. 20"
+                      placeholder="Ej. 20 o 20,5"
                       value={horasAAgregarTexto}
                       onChange={(e) => setHorasAAgregarTexto(e.target.value)}
                     />
@@ -326,6 +335,51 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                   </Button>
                 </div>
 
+                {ultimoResultadoRedist?.codigo === "ok" ? (
+                  <div className="mt-3 rounded-r8 border border-teal-600/35 bg-teal-500/10 px-3 py-2 text-[11px] text-teal-950">
+                    <p className="font-semibold">Simulación calculada</p>
+                    <p className="mt-1 leading-snug">
+                      +{ultimoResultadoRedist.addRoundedSolicitud.toFixed(1)} h en{" "}
+                      <span className="font-mono font-semibold">{categoriaDestino}</span>, compensado desde otras
+                      categorías. ΔUF{" "}
+                      <span className="font-mono font-semibold">
+                        {ultimoResultadoRedist.diferenciaUf.toFixed(4)}
+                      </span>{" "}
+                      (dentro de tolerancia). Revise «Horas finales propuestas» a la derecha y guarde con comentario.
+                    </p>
+                    <div className="mt-2 overflow-x-auto rounded-r6 border border-teal-600/20 bg-white/80">
+                      <table className="w-full min-w-[280px] border-collapse text-[10px]">
+                        <thead>
+                          <tr className="border-b border-teal-600/15 text-left text-t500">
+                            <th className="p-1.5">Cat.</th>
+                            <th className="p-1.5">Antes</th>
+                            <th className="p-1.5">Después</th>
+                            <th className="p-1.5">Δ h</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {CATEGORIAS_REDIST.map((c) => {
+                            const dh = ultimoResultadoRedist.propuesta[c] - horasActuales[c];
+                            return (
+                              <tr key={c} className="border-b border-teal-600/10">
+                                <td className="p-1.5 font-mono font-semibold">{c}</td>
+                                <td className="p-1.5 font-mono">{horasActuales[c].toFixed(1)}</td>
+                                <td className="p-1.5 font-mono">{ultimoResultadoRedist.propuesta[c].toFixed(1)}</td>
+                                <td
+                                  className={`p-1.5 font-mono ${dh > 0 ? "text-teal-800" : dh < 0 ? "text-rose-800" : ""}`}
+                                >
+                                  {dh > 0 ? "+" : ""}
+                                  {dh.toFixed(1)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
                 {ultimoResultadoRedist && ultimoResultadoRedist.codigo !== "ok" ? (
                   <div
                     className={
@@ -334,6 +388,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                         : "mt-3 rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-950"
                     }
                   >
+                    <p className="mb-1 font-semibold">No se pudo cuadrar la redistribución</p>
                     <ul className="list-inside list-disc space-y-1 leading-snug">
                       {ultimoResultadoRedist.mensajes.map((m, i) => (
                         <li key={`${i}-${m.slice(0, 120)}`}>{m}</li>
@@ -388,7 +443,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
               ) : null}
             </div>
 
-            <div className="space-y-4 text-[12px] text-t800">
+            <div ref={resultadosPanelRef} className="space-y-4 text-[12px] text-t800">
               <div>
                 <div className="mb-1 font-semibold text-t900">Horas finales propuestas</div>
                 <p className="mb-2 text-[11px] leading-snug text-t600">
