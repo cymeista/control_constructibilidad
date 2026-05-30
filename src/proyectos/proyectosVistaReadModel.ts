@@ -29,6 +29,52 @@ export type FiltroEstadoProyectoVista =
   | "NO_INICIADO"
   | "SOLO_ALERTAS";
 
+export type EstadoProyecto = Proyecto["estado"];
+
+export const ESTADOS_PROYECTO: EstadoProyecto[] = ["ACTIVO", "COMPLETADO", "NO_INICIADO", "SUSPENDIDO"];
+
+export function estadoProyectoLabel(e: string): string {
+  switch (e) {
+    case "ACTIVO":
+      return "Activo";
+    case "COMPLETADO":
+      return "Completado";
+    case "NO_INICIADO":
+      return "No iniciado";
+    case "SUSPENDIDO":
+      return "Suspendido";
+    default:
+      return e;
+  }
+}
+
+const EPS_ACTIVIDAD = 1e-6;
+
+/** Actividad real en entregable: horas RegistroHora, avance real o gasto UF > 0. */
+export function entregableTieneActividadReal(row: EntregableVistaAnalisis): boolean {
+  if (row.horasGastadas > EPS_ACTIVIDAD) return true;
+  if (row.avanceRealPct > EPS_ACTIVIDAD) return true;
+  if (row.ufGasto > EPS_ACTIVIDAD) return true;
+  return false;
+}
+
+export function proyectoTieneActividadRealDesdeFilas(
+  proyectoId: string,
+  filas: EntregableVistaAnalisis[],
+): boolean {
+  return filas.some((r) => r.proyecto.id === proyectoId && entregableTieneActividadReal(r));
+}
+
+/** Proyectos en estado NO_INICIADO con al menos un entregable con actividad real. */
+export function listarProyectosNoIniciadoConActividad(
+  proyectos: Proyecto[],
+  filas: EntregableVistaAnalisis[],
+): Proyecto[] {
+  return proyectos.filter(
+    (p) => p.estado === "NO_INICIADO" && proyectoTieneActividadRealDesdeFilas(p.id, filas),
+  );
+}
+
 export function toPct(x: number): number {
   if (!Number.isFinite(x)) return 0;
   if (x <= 1) return Math.max(0, x * 100);

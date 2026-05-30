@@ -15,7 +15,7 @@ import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimien
 import EquipoEntregableSection from "@/components/EquipoEntregableSection";
 import { useAppData, type Profesional, type PmInterno } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
-import { canViewRouteForSession, canEditNotas, canGestionarEquipoEntregable } from "@/security/permissions";
+import { canViewRouteForSession, canEditNotas, canGestionarEquipoEntregable, canEditEstadoProyecto } from "@/security/permissions";
 import {
   TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   agregarTotalesKpiSinL2,
@@ -23,9 +23,15 @@ import {
   filtrarAnalisisVista,
   agruparClienteProyecto,
   entregableVisibleEnVistaActiva,
+  estadoProyectoLabel,
+  ESTADOS_PROYECTO,
+  listarProyectosNoIniciadoConActividad,
+  proyectoTieneActividadRealDesdeFilas,
   type EntregableVistaAnalisis,
+  type EstadoProyecto,
   type FiltroEstadoProyectoVista,
 } from "@/proyectos/proyectosVistaReadModel";
+import type { Proyecto } from "@/context/AppDataContext";
 import { historialRedistribucionPorEntregable } from "@/entregables/redistribucionHorasEntregable";
 
 const fmtH = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -117,19 +123,41 @@ function codigoFaseEntregable(e: { fase_codigo?: string; tarea_codigo?: string }
   return f || t || "";
 }
 
-function estadoProyectoLabel(e: string): string {
-  switch (e) {
-    case "ACTIVO":
-      return "Activo";
-    case "COMPLETADO":
-      return "Completado";
-    case "NO_INICIADO":
-      return "No iniciado";
-    case "SUSPENDIDO":
-      return "Suspendido";
-    default:
-      return e;
+function ProyectoEstadoControl({
+  proyecto,
+  puedeEditar,
+  onCambiar,
+  className = "",
+}: {
+  proyecto: Proyecto;
+  puedeEditar: boolean;
+  onCambiar: (estado: EstadoProyecto) => void;
+  className?: string;
+}) {
+  if (!puedeEditar) {
+    return (
+      <span
+        className={`rounded-r4 border border-bdr bg-white px-1.5 py-0.5 text-[9px] font-semibold uppercase text-t600 ${className}`}
+      >
+        {estadoProyectoLabel(proyecto.estado)}
+      </span>
+    );
   }
+  return (
+    <select
+      value={proyecto.estado}
+      aria-label={`Estado del proyecto ${proyecto.codigo}`}
+      className={`max-w-[9.5rem] rounded-r4 border border-bdr bg-white px-1.5 py-0.5 text-[10px] font-semibold text-t800 shadow-sm ${className}`}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onCambiar(e.target.value as EstadoProyecto)}
+    >
+      {ESTADOS_PROYECTO.map((est) => (
+        <option key={est} value={est}>
+          {estadoProyectoLabel(est)}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 export default function Proyectos() {
@@ -139,6 +167,7 @@ export default function Proyectos() {
   const puedeVerFormularios = canViewRouteForSession(role, "/formularios");
   const puedeEditarNotas = role ? canEditNotas(role) : false;
   const puedeGestionarEquipo = role ? canGestionarEquipoEntregable(role) : false;
+  const puedeEditarEstadoProyecto = role ? canEditEstadoProyecto(role) : false;
   const {
     clientes,
     proyectos,
@@ -149,6 +178,7 @@ export default function Proyectos() {
     historial_redistribuciones_horas,
     pm_internos,
     updateEntregable,
+    updateProyecto,
   } = useAppData();
 
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstadoProyectoVista>("ACTIVO");
@@ -239,6 +269,25 @@ export default function Proyectos() {
   ]);
 
   const grouped = useMemo(() => agruparClienteProyecto(filasFiltradas), [filasFiltradas]);
+
+  const proyectosNoIniciadoConActividad = useMemo(
+    () => listarProyectosNoIniciadoConActividad(proyectos, analisisBase),
+    [proyectos, analisisBase],
+  );
+
+  const marcarProyectoActivo = useCallback(
+    (proyectoId: string) => {
+      updateProyecto(proyectoId, { estado: "ACTIVO" });
+    },
+    [updateProyecto],
+  );
+
+  const cambiarEstadoProyecto = useCallback(
+    (proyectoId: string, estado: EstadoProyecto) => {
+      updateProyecto(proyectoId, { estado });
+    },
+    [updateProyecto],
+  );
 
   const kpis = useMemo(() => {
     const proyIds = new Set(filasFiltradas.map((r) => r.proyecto.id));
@@ -332,6 +381,49 @@ export default function Proyectos() {
         title="Proyectos · Vista ejecutiva"
         hint={`Cliente → Proyecto → Entregables. Gasto vs avance: +${TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts. Umbrales alineados con Gestión de Horas.`}
       />
+
+      {proyectosNoIniciadoConActividad.length > 0 ? (
+        <div className="mb-4 rounded-r12 border border-amber-500/45 bg-amber-500/10 px-4 py-3 shadow-sh1">
+          <p className="text-[13px] font-semibold text-amber-950">
+            Inconsistencia de estado ({proyectosNoIniciadoConActividad.length} proyecto
+            {proyectosNoIniciadoConActividad.length === 1 ? "" : "s"})
+          </p>
+          {filtroEstado === "ACTIVO" ? (
+            <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
+              Con el filtro «Activos» estos proyectos no aparecen en el listado inferior, pero tienen entregables con
+              horas reales, avance o gasto registrado.
+            </p>
+          ) : null}
+          <ul className="mt-3 space-y-2">
+            {proyectosNoIniciadoConActividad.map((pr) => (
+              <li
+                key={pr.id}
+                className="flex flex-col gap-2 rounded-r8 border border-amber-500/30 bg-white/80 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-t900">
+                    <span className="font-mono text-copper">{pr.codigo}</span> · {pr.nombre}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-amber-950">
+                    Este proyecto tiene actividad registrada, pero está marcado como No iniciado.
+                  </p>
+                </div>
+                {puedeEditarEstadoProyecto ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-r8 border-amber-600/40 bg-white text-[11px] font-semibold text-amber-950 hover:bg-amber-50"
+                    onClick={() => marcarProyectoActivo(pr.id)}
+                  >
+                    Marcar como Activo
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className={`mb-4 ${kpiCardsGridClassName6}`}>
         <KpiCard
@@ -516,6 +608,9 @@ export default function Proyectos() {
                         {bloque.proyectos.map((grp) => {
                           const pid = grp.proyecto.id;
                           const openP = openProyectos.has(pid);
+                          const proyectoInconsistente =
+                            grp.proyecto.estado === "NO_INICIADO" &&
+                            proyectoTieneActividadRealDesdeFilas(pid, analisisBase);
                           const pmNombre =
                             (grp.proyecto.pm_interno_id && pmMap.get(grp.proyecto.pm_interno_id)?.nombre) ||
                             grp.proyecto.pm_nombre ||
@@ -538,9 +633,11 @@ export default function Proyectos() {
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="font-mono text-[12px] font-semibold text-copper">{grp.proyecto.codigo}</span>
                                     <span className="text-[13px] font-semibold text-t800">{grp.proyecto.nombre}</span>
-                                    <span className="rounded-r4 border border-bdr bg-white px-1.5 py-0.5 text-[9px] font-semibold uppercase text-t600">
-                                      {estadoProyectoLabel(grp.proyecto.estado)}
-                                    </span>
+                                    <ProyectoEstadoControl
+                                      proyecto={grp.proyecto}
+                                      puedeEditar={puedeEditarEstadoProyecto}
+                                      onCambiar={(est) => cambiarEstadoProyecto(pid, est)}
+                                    />
                                   </div>
                                   <p className="mt-1 text-[11px] text-t500">
                                     PM: {pmNombre} · Líder principal: {liderNom} ·{" "}
@@ -577,6 +674,24 @@ export default function Proyectos() {
                                   </div>
                                 </div>
                               </button>
+                              {proyectoInconsistente ? (
+                                <div className="flex flex-col gap-2 border-b border-amber-500/35 bg-amber-500/10 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                                  <p className="text-[11px] leading-snug text-amber-950">
+                                    Este proyecto tiene actividad registrada, pero está marcado como No iniciado.
+                                  </p>
+                                  {puedeEditarEstadoProyecto ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 shrink-0 rounded-r8 border-amber-600/40 bg-white text-[11px] font-semibold text-amber-950 hover:bg-amber-50"
+                                      onClick={() => marcarProyectoActivo(pid)}
+                                    >
+                                      Marcar como Activo
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              ) : null}
                               <AnimatePresence initial={false}>
                                 {openP ? (
                                   <motion.div

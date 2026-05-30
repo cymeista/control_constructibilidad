@@ -69,6 +69,11 @@ export function canRedistribuir(role: AppRole): boolean {
   return role === "ADMIN";
 }
 
+/** Cambiar estado del proyecto (No iniciado / Activo / etc.) desde vistas operativas. */
+export function canEditEstadoProyecto(role: AppRole): boolean {
+  return role === "ADMIN";
+}
+
 export function canAsignar(role: AppRole): boolean {
   return role === "ADMIN";
 }
