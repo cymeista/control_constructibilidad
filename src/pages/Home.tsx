@@ -533,7 +533,9 @@ export default function Home() {
       labels: obj.labels,
       datasets: [
         {
-          label: isBelowMd ? `Ajust. (${factor}%)` : `Acumulado ajustado (${factor}%)`,
+          label: isBelowMd
+            ? `Obj. acum. (${factor}%)`
+            : `Objetivo acumulado horas directas (ajuste ${factor}%)`,
           data: obj.ajusteAcum,
           borderColor: "#4f46e5",
           backgroundColor: "rgba(79,70,229,0.06)",
@@ -584,7 +586,9 @@ export default function Home() {
       labels: obj.labels,
       datasets: [
         {
-          label: isBelowMd ? `Ajust. (${factor}%)` : `Mensual ajustado (${factor}%)`,
+          label: isBelowMd
+            ? `Obj. mens. (${factor}%)`
+            : `Objetivo mensual horas directas (ajuste ${factor}%)`,
           data: obj.ajusteMensual,
           borderColor: "#4f46e5",
           backgroundColor: "rgba(79,70,229,0.06)",
@@ -816,9 +820,11 @@ export default function Home() {
               const lineReal =
                 rv != null && Number.isFinite(rv) ? `Real acumulado (DIRECTA): ${fmtHorasCurva(rv)} h` : "Real acumulado (DIRECTA): —";
               return [
-                `Objetivo ajustado (${factor}% cargabilidad): ${fmtHorasCurva(adj)} h`,
+                `Objetivo acumulado de horas directas ajustado al ${factor}%: ${fmtHorasCurva(adj)} h`,
                 `Propuesta acumulada (P4+P3+P2): ${fmtHorasCurva(pp)} h`,
                 lineReal,
+                "",
+                "Esta curva no representa el % de cargabilidad real. Representa la meta acumulada de horas directas esperadas, calculada sobre la curva anual ajustada por el factor seleccionado.",
               ];
             },
           },
@@ -868,9 +874,11 @@ export default function Home() {
               const lineReal =
                 rv != null && Number.isFinite(rv) ? `Real mensual (DIRECTA): ${fmtHorasCurva(rv)} h` : "Real mensual (DIRECTA): —";
               return [
-                `Objetivo ajustado (${factor}% cargabilidad): ${fmtHorasCurva(adj)} h`,
+                `Objetivo mensual de horas directas ajustado al ${factor}%: ${fmtHorasCurva(adj)} h`,
                 `Propuesta mensual (P4+P3+P2): ${fmtHorasCurva(pm)} h`,
                 lineReal,
+                "",
+                "Esta curva no representa el % de cargabilidad real. Representa la meta acumulada de horas directas esperadas, calculada sobre la curva anual ajustada por el factor seleccionado.",
               ];
             },
           },
@@ -899,7 +907,7 @@ export default function Home() {
 
         <div className="mb-4 flex flex-col gap-3 rounded-r12 border border-bdr bg-surface px-4 py-3 shadow-sh1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 sm:px-5 sm:py-4">
           <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-t400">
-            Factor Cargabilidad
+            Factor de ajuste del objetivo
           </span>
           <div className="flex min-w-0 w-full items-center gap-3 sm:min-w-[120px] sm:flex-1">
             <input
@@ -915,12 +923,13 @@ export default function Home() {
             </span>
           </div>
           <span className="min-w-0 text-[11px] leading-snug text-t300 md:hidden">
-            Ajusta el <strong>objetivo en pantalla</strong>. La curva real viene de RegistroHora (DIRECTAS).
+            Multiplica la curva anual de <strong>horas directas esperadas</strong> (no es cargabilidad real). La curva
+            real viene de RegistroHora (DIRECTAS).
           </span>
           <span className="hidden min-w-0 text-[11px] text-t300 md:inline">
-            Recalcula en pantalla el <strong>objetivo ajustado</strong>; la curva <strong>real</strong> viene de
-            RegistroHora (todas las DIRECTAS cargadas · prorrateadas por semana). No modifica la curva objetivo
-            guardada.
+            Recalcula en pantalla la <strong>meta de horas directas</strong> (curva anual × factor); no es el % de
+            cargabilidad real. La curva <strong>real</strong> viene de RegistroHora (DIRECTAS · prorrateadas por semana).
+            No modifica la curva objetivo guardada.
           </span>
         </div>
 
@@ -930,8 +939,8 @@ export default function Home() {
             <p className="font-semibold text-amber-950">No existe Curva Objetivo Anual para {anioCalendario}</p>
             <p className="mt-1.5 text-[12px] leading-relaxed text-t700">
               Crea la curva del año en curso en <strong>Formularios → Curva objetivo anual</strong>. Esta sección usa
-              únicamente esa fuente para la meta de equipo al 100% y la vista ajustada por cargabilidad, sin escribir
-              en los datos guardados.
+              únicamente esa fuente para la meta de equipo al 100% y la vista ajustada por factor (%), sin escribir en
+              los datos guardados.
             </p>
           </div>
         ) : curvaObjetivoDashboard ? (
@@ -994,7 +1003,11 @@ export default function Home() {
                         <KpiCard
                           label="OBJETIVO ANUAL AJUSTADO"
                           value={`${fmtHorasCurva(curvaObjetivoDashboard.kpis.objetivoAnualAjustado)} h`}
-                          subtitle={isBelowMd ? `Anual × ${factor}%` : `Anual × ${factor}% cargabilidad`}
+                          subtitle={
+                            isBelowMd
+                              ? `Curva anual × ${factor}%`
+                              : `Meta anual horas directas · curva × ${factor}% (no es cargabilidad real)`
+                          }
                           topColor="#4f46e5"
                         />
                         <KpiCard
@@ -1052,7 +1065,7 @@ export default function Home() {
                           topColor={faltanteMes.esSobreObjetivo ? "#047857" : "#B91C1C"}
                         />
                         <KpiCard
-                          label={isBelowMd ? "% CARGABILIDAD (YTD)" : "% CARGABILIDAD ÁREA ANUAL (YTD)"}
+                          label={isBelowMd ? "CARGABILIDAD REAL (YTD)" : "CARGABILIDAD REAL ÁREA (YTD)"}
                           value={
                             curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD != null
                               ? `${curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD.toFixed(1)}%`
@@ -1060,8 +1073,8 @@ export default function Home() {
                           }
                           subtitle={
                             isBelowMd
-                              ? "Directas YTD vs ref. anual"
-                              : "Directas reales acumuladas vs referencia anual acumulada (dir. / dir.+indir. YTD)"
+                              ? "Directas ÷ (directas + indirectas), sin vacaciones"
+                              : "Cargabilidad real = directas / (directas + indirectas), sin vacaciones."
                           }
                           topColor="#6366F1"
                         />
@@ -1080,14 +1093,15 @@ export default function Home() {
                 <span className="font-mono text-[12px] font-normal text-t500">({curvaObjetivoAnualActual.anio})</span>
               </p>
               <p className="mt-2 text-[12px] leading-relaxed text-t600 md:hidden">
-                <strong>Ajustado</strong> (violeta) = curva × {factor}%. <strong>Propuesta</strong> (azul) = P4+P3+P2
-                prorrateado por mes. <strong>Real</strong> (naranja) = DIRECTAS RegistroHora. Toca un mes para ver
-                desglose.
+                <strong>Objetivo ajustado</strong> (violeta) = meta acumulada horas directas (curva × {factor}%; no es
+                cargabilidad real). <strong>Propuesta</strong> (azul) = P4+P3+P2. <strong>Real</strong> (naranja) =
+                DIRECTAS RegistroHora. Toca un mes para desglose.
               </p>
               {curvaExplicacionAbierta ? (
                 <p className="mt-2 text-[11px] leading-relaxed text-t500 md:hidden">
-                  La propuesta suma horas de entregables con fechas válidas y prorrateo lineal por día. El real se corta
-                  tras el último mes con carga. El 100% objetivo no se dibuja; solo el ajustado por cargabilidad.
+                  La curva violeta no es el % de cargabilidad: es la meta de horas directas esperadas según la curva
+                  anual × factor. La propuesta suma P4+P3+P2 con prorrateo por día. El real se corta tras el último mes
+                  con carga. Cargabilidad real (KPI) = directas / (directas + indirectas), sin vacaciones.
                 </p>
               ) : null}
               <button
@@ -1098,13 +1112,14 @@ export default function Home() {
                 {curvaExplicacionAbierta ? "Ocultar explicación" : "Ver explicación"}
               </button>
               <p className="mt-2 hidden text-[12px] leading-relaxed text-t600 md:block">
-                <strong>Objetivo ajustado</strong> (violeta): curva guardada × <strong>{factor}%</strong> cargabilidad.
+                <strong>Objetivo acumulado de horas directas ajustado al {factor}%</strong> (violeta): meta acumulada de
+                horas directas esperadas (curva anual guardada × factor seleccionado).{" "}
+                <strong>No representa el % de cargabilidad real.</strong>
                 <strong> Propuesta</strong> (azul, línea a trazos): suma entregables (hrs_p4+p3+p2), prorrateo lineal por
-                día entre fecha_inicio y fecha_termino, agregado por mes; curva completa hasta diciembre (incluye
-                cruces de año solo en la porción del año vista). <strong>Real</strong> (naranja): todas las DIRECTAS
-                cargadas desde RegistroHora (prorrateadas por semana); se corta tras el último mes con carga. Clic en un
-                mes del gráfico abre el desglose de
-                propuesta. El 100% objetivo sigue en cálculo interno, no dibujado.
+                día entre fecha_inicio y fecha_termino, agregado por mes. <strong>Real</strong> (naranja): DIRECTAS desde
+                RegistroHora (prorrateadas por semana); se corta tras el último mes con carga. El KPI{" "}
+                <strong>cargabilidad real</strong> es aparte: directas / (directas + indirectas), sin vacaciones. Clic en
+                un mes del gráfico abre el desglose de propuesta. El 100% objetivo sigue en cálculo interno, no dibujado.
               </p>
             </div>
             <div className="grid min-w-0 max-w-full gap-4 lg:grid-cols-2">
@@ -1113,11 +1128,13 @@ export default function Home() {
                   Objetivo acumulado
                 </h3>
                 <p className="mb-2 text-[11px] leading-snug text-t500 md:hidden">
-                  Ajustado, propuesta y real. Toca un mes para desglose.
+                  Meta horas directas (ajuste {factor}%), propuesta y real. No confundir con cargabilidad real (%). Toca un
+                  mes para desglose.
                 </p>
                 <p className="mb-2 hidden text-[12px] text-t500 md:block">
-                  Ajustado, propuesta acumulada y real (real cortado al último mes con carga). Clic en el gráfico: desglose
-                  propuesta del mes.
+                  Objetivo acumulado de horas directas (ajuste {factor}%), propuesta acumulada y real (real cortado al
+                  último mes con carga). La curva violeta no es cargabilidad real. Clic en el gráfico: desglose propuesta
+                  del mes.
                 </p>
                 <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
                   <ChartJsLineFrame
@@ -1133,11 +1150,11 @@ export default function Home() {
                   Objetivo mensual
                 </h3>
                 <p className="mb-2 text-[11px] leading-snug text-t500 md:hidden">
-                  Series mensuales. Toca un mes para desglose.
+                  Meta mensual horas directas (ajuste {factor}%), propuesta y real. Toca un mes para desglose.
                 </p>
                 <p className="mb-2 hidden text-[12px] text-t500 md:block">
-                  Ajustado, propuesta mensual y real (propuesta año completo; real cortado al último mes con carga). Clic:
-                  desglose.
+                  Objetivo mensual de horas directas (ajuste {factor}%), propuesta mensual y real (propuesta año completo;
+                  real cortado al último mes con carga). La serie violeta no es el % de cargabilidad real. Clic: desglose.
                 </p>
                 <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
                   <ChartJsLineFrame
