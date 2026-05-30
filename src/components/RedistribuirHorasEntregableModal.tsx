@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -29,16 +30,22 @@ import type {
 import { useAppData } from "@/context/AppDataContext";
 import {
   CATEGORIAS_REDIST,
-  UF_REDISTRIBUCION_TOLERANCIA,
   calcularRedistribucionAgregarHorasDestinoCompleto,
+  calcularRedistribucionMaximoDisponible,
   calcularUfEntregablePorCategoria,
   construirLineasRedistribucion,
-  esMultiploDeMediaHora,
+  evaluarCompensacionParcialDestino,
+  etiquetaEstadoLineaRedistribucion,
   historialRedistribucionPorEntregable,
   horasEntregableARecord,
-  normalizarAMediaHoraMasCercano,
+  horasAgregarSugeridasParaRegularizarDeficit,
+  MENSAJE_AUTO_SIN_COMBINACION_05H,
+  mensajeDeficitCategoriaDestino,
+  mensajePresupuestoBajoGastoReal,
+  redondearHorasAjusteManual,
   redondearMediaHoraHaciaArriba,
   tarifasDesdeProyecto,
+  UF_REDISTRIBUCION_TOLERANCIA,
   validarRedistribucionHoras,
   type ResultadoRedistribDestinoCompleto,
   type SugerenciaRedistribAgregar,
@@ -100,10 +107,22 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
   const [errores, setErrores] = useState<string[]>([]);
   const [categoriaDestino, setCategoriaDestino] = useState<AsignacionHoraCategoria>("L2");
   const [horasAAgregarTexto, setHorasAAgregarTexto] = useState("");
-  /** True si el usuario tocó los inputs de horas finales sin recalcular compensación UF automática. */
-  const [edicionManualHorasPropuestas, setEdicionManualHorasPropuestas] = useState(false);
   const [ultimoResultadoRedist, setUltimoResultadoRedist] = useState<ResultadoRedistribDestinoCompleto | null>(null);
+  /** UI legacy asignaciones oculta; cálculos internos se mantienen. */
+  const mostrarDetalleLegacyAsignacionesUi = false;
+  const [legacyAsignacionesAbierto, setLegacyAsignacionesAbierto] = useState(false);
+  const [mensajeAuto, setMensajeAuto] = useState<string | null>(null);
+  const [detalleAutoExpandido, setDetalleAutoExpandido] = useState(false);
+  const [mensajeExitoParcial, setMensajeExitoParcial] = useState<string | null>(null);
   const resultadosPanelRef = useRef<HTMLDivElement>(null);
+
+  const fmtH = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+  const fmtHorasTabla = (n: number) => {
+    const r = redondearHorasAjusteManual(n);
+    const dec = Math.abs(r - Math.round(r * 10) / 10) > 1e-6 ? 2 : 1;
+    return r.toLocaleString("es-CL", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  };
 
   useEffect(() => {
     if (open) {
@@ -112,8 +131,11 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       setErrores([]);
       setCategoriaDestino("L2");
       setHorasAAgregarTexto("");
-      setEdicionManualHorasPropuestas(false);
       setUltimoResultadoRedist(null);
+      setMensajeAuto(null);
+      setDetalleAutoExpandido(false);
+      setMensajeExitoParcial(null);
+      setLegacyAsignacionesAbierto(false);
     }
   }, [open, ent]);
 
@@ -141,6 +163,44 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
   const diffUf = ufDespues - ufAntes;
   const ufCuadrada = tarifas && Math.abs(diffUf) <= UF_REDISTRIBUCION_TOLERANCIA;
 
+  const erroresGuardadoVivo = useMemo(() => {
+    if (!tarifas) return ["Sin tarifas de proyecto válidas."];
+    return validarRedistribucionHoras(horasActuales, horasEdit, lineas, tarifas, comentario, {
+      exigirMultiploMediaHora: false,
+      exigirComentario: true,
+    });
+  }, [tarifas, horasActuales, horasEdit, lineas, comentario]);
+
+  const puedeGuardar = tarifas != null && erroresGuardadoVivo.length === 0;
+
+  const lineaDestino = useMemo(
+    () => lineas.find((l) => l.categoria === categoriaDestino),
+    [lineas, categoriaDestino],
+  );
+
+  const compensacionParcial = useMemo(() => {
+    if (!tarifas || !lineaDestino) {
+      return {
+        mostrarOpcionMaximo: false,
+        deficitHoras: 0,
+        deficitUf: 0,
+        ufCompensable: 0,
+        mensajeInsuficiencia: null,
+      };
+    }
+    return evaluarCompensacionParcialDestino(categoriaDestino, lineas, tarifas);
+  }, [tarifas, lineaDestino, categoriaDestino, lineas]);
+
+  const aplicarHorasSugeridasDestino = useCallback(
+    (cat: AsignacionHoraCategoria) => {
+      const ln = lineas.find((l) => l.categoria === cat);
+      if (!ln || ln.deficitHoras <= 0) return;
+      const sugerido = horasAgregarSugeridasParaRegularizarDeficit(ln);
+      setHorasAAgregarTexto(String(Math.round(sugerido * 10) / 10));
+    },
+    [lineas],
+  );
+
   const onCalcularRedistribucion = useCallback(() => {
     if (!tarifas) {
       setErrores([tarifasError ?? "Sin tarifas de proyecto."]);
@@ -153,30 +213,86 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       setUltimoResultadoRedist(null);
       return;
     }
+    const lnDest = lineas.find((l) => l.categoria === categoriaDestino);
+    if (lnDest) {
+      const presupuestoResultante = horasActuales[categoriaDestino] + raw;
+      if (presupuestoResultante + 1e-6 < lnDest.gastoRealRegistroHora) {
+        setUltimoResultadoRedist(null);
+        setMensajeAuto(null);
+        setErrores([mensajePresupuestoBajoGastoReal(categoriaDestino, presupuestoResultante, lnDest)]);
+        return;
+      }
+    }
     const res = calcularRedistribucionAgregarHorasDestinoCompleto(lineas, tarifas, horasActuales, categoriaDestino, raw);
     setUltimoResultadoRedist(res);
-    setEdicionManualHorasPropuestas(false);
     if (res.codigo === "ok") {
       setHorasEdit(res.propuesta);
+      setMensajeAuto(null);
+      setMensajeExitoParcial(null);
       setErrores([]);
       requestAnimationFrame(() => {
         resultadosPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     } else {
-      setHorasEdit(horasEntregableARecord(ent));
-      setErrores(
-        res.mensajes.length > 0
-          ? res.mensajes
-          : ["No se pudo calcular la redistribución. Revise categoría, horas y disponibilidad en otras categorías."],
-      );
+      const raw = Number(String(horasAAgregarTexto).replace(",", ".").trim());
+      const incremento = Number.isFinite(raw) && raw > 0 ? raw : 0;
+      if (incremento > 0) {
+        setHorasEdit((prev) => ({
+          ...prev,
+          [categoriaDestino]: redondearHorasAjusteManual(
+            horasActuales[categoriaDestino] + incremento,
+          ),
+        }));
+      }
+      setMensajeAuto(MENSAJE_AUTO_SIN_COMBINACION_05H);
+      setDetalleAutoExpandido(false);
+      setErrores([]);
+      requestAnimationFrame(() => {
+        resultadosPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     }
   }, [tarifas, tarifasError, lineas, horasActuales, categoriaDestino, horasAAgregarTexto, ent]);
 
+  const onRedistribuirMaximoDisponible = useCallback(() => {
+    if (!tarifas) {
+      setErrores([tarifasError ?? "Sin tarifas de proyecto."]);
+      return;
+    }
+    const res = calcularRedistribucionMaximoDisponible(lineas, tarifas, horasActuales, categoriaDestino);
+    setUltimoResultadoRedist(null);
+    setMensajeAuto(null);
+    const hayCambio = CATEGORIAS_REDIST.some(
+      (c) => Math.abs(res.horasPropuestas[c] - horasActuales[c]) > 1e-6,
+    );
+    if (res.ok && hayCambio) {
+      setHorasEdit({
+        L2: res.horasPropuestas.L2,
+        P4: res.horasPropuestas.P4,
+        P3: res.horasPropuestas.P3,
+        P2: res.horasPropuestas.P2,
+      });
+      setMensajeExitoParcial(res.mensajeExito);
+      setErrores([]);
+      requestAnimationFrame(() => {
+        resultadosPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } else {
+      setMensajeExitoParcial(null);
+      setErrores(
+        res.errores.length > 0
+          ? res.errores
+          : hayCambio
+            ? ["La propuesta parcial no pasó las validaciones de guardado."]
+            : ["No se pudo generar la redistribución parcial."],
+      );
+    }
+  }, [tarifas, tarifasError, lineas, horasActuales, categoriaDestino]);
+
   const onAplicarSugerencia = useCallback((s: SugerenciaRedistribAgregar) => {
     setHorasEdit({ ...s.horasPropuestas });
-    setEdicionManualHorasPropuestas(false);
     setErrores([]);
     setUltimoResultadoRedist(null);
+    setMensajeExitoParcial(null);
   }, []);
 
   const onGuardar = useCallback(() => {
@@ -184,7 +300,9 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       setErrores([tarifasError ?? "Sin tarifas de proyecto."]);
       return;
     }
-    const errs = validarRedistribucionHoras(horasActuales, horasEdit, lineas, tarifas, comentario);
+    const errs = validarRedistribucionHoras(horasActuales, horasEdit, lineas, tarifas, comentario, {
+      exigirMultiploMediaHora: false,
+    });
     if (errs.length) {
       setErrores(errs);
       return;
@@ -209,10 +327,10 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       <DialogContent className="flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-r10 p-0 sm:max-w-6xl">
         <div className="border-b border-bdr px-6 py-4">
           <DialogHeader className="text-left">
-            <DialogTitle>Redistribuir horas por categoría</DialogTitle>
+            <DialogTitle>Redistribuir presupuesto por categoría</DialogTitle>
             <DialogDescription>
-              Ajusta L2 / P4 / P3 / P2 del entregable conservando UF total dentro de ±{UF_REDISTRIBUCION_TOLERANCIA} UF. No
-              modifica asignaciones ni registros de horas.
+              Ajusta L2 / P4 / P3 / P2 según presupuesto y gasto real RegistroHora (DIRECTA válida), conservando UF total
+              dentro de ±{UF_REDISTRIBUCION_TOLERANCIA} UF. No modifica asignaciones ni registros de horas.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -231,47 +349,120 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
               ) : null}
 
               <div>
-                <div className="mb-1 font-semibold text-t900">Situación actual por categoría</div>
+                <div className="mb-1 font-semibold text-t900">Control por categoría (RegistroHora)</div>
+                <p className="mb-2 text-[10px] leading-snug text-t500">
+                  Misma lectura que Gestión de Horas: presupuesto del entregable vs gasto real DIRECTA válida por categoría
+                  del profesional.
+                </p>
                 <div className="overflow-x-auto rounded-r8 border border-bdr">
-                  <table className="w-full min-w-[560px] border-collapse text-[11px]">
+                  <table className="w-full min-w-[520px] border-collapse text-[11px]">
                     <thead>
                       <tr className="border-b border-bdr bg-surface2 text-left text-t500">
-                        <th className="p-2">Cat.</th>
-                        <th className="p-2">Presup.</th>
-                        <th className="p-2">Cons. hist.</th>
-                        <th className="p-2">Gasto act.</th>
-                        <th className="p-2">Comprom.</th>
-                        <th className="p-2">Disp. mover</th>
-                        <th className="p-2">Déficit</th>
+                        <th className="p-2">Categoría</th>
+                        <th className="p-2 text-right">Presupuesto</th>
+                        <th className="p-2 text-right">Gasto real</th>
+                        <th className="p-2 text-right">Saldo / déficit</th>
+                        <th className="p-2 text-right">Disp. mover</th>
+                        <th className="p-2">Estado</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {lineas.map((ln) => (
-                        <tr
-                          key={ln.categoria}
-                          className={`border-b border-bdr/60 ${ln.categoria === categoriaDestino ? "bg-teal-500/8" : ""}`}
-                        >
-                          <td className="p-2 font-mono font-semibold">{ln.categoria}</td>
-                          <td className="p-2 font-mono">{ln.presupuesto.toFixed(1)}</td>
-                          <td className="p-2 font-mono">{ln.consumidoHistoricoCerrado.toFixed(1)}</td>
-                          <td className="p-2 font-mono">{ln.gastoRealActivo.toFixed(1)}</td>
-                          <td className="p-2 font-mono">{ln.comprometidoActivo.toFixed(1)}</td>
-                          <td className="p-2 font-mono">{ln.disponibleParaMover.toFixed(1)}</td>
-                          <td className={`p-2 font-mono ${ln.deficitHoras > 0 ? "font-semibold text-[#B91C1C]" : ""}`}>
-                            {ln.deficitHoras.toFixed(1)}
-                          </td>
-                        </tr>
-                      ))}
+                      {lineas.map((ln) => {
+                        const estadoCls =
+                          ln.estado === "OK"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : ln.estado === "SIN_PRESUPUESTO_CON_GASTO"
+                              ? "bg-orange-100 text-orange-800"
+                              : "bg-rose-100 text-rose-800";
+                        return (
+                          <tr
+                            key={ln.categoria}
+                            className={`border-b border-bdr/60 ${ln.categoria === categoriaDestino ? "bg-teal-500/8" : ""}`}
+                          >
+                            <td className="p-2 font-mono font-semibold">{ln.categoria}</td>
+                            <td className="p-2 text-right font-mono">{fmtH(ln.presupuesto)} h</td>
+                            <td className="p-2 text-right font-mono">{fmtH(ln.gastoRealRegistroHora)} h</td>
+                            <td
+                              className={`p-2 text-right font-mono ${
+                                ln.saldoCategoria < 0 ? "font-semibold text-[#B91C1C]" : "text-emerald-800"
+                              }`}
+                            >
+                              {ln.saldoCategoria >= 0 ? (
+                                <>Saldo {fmtH(ln.saldoCategoria)} h</>
+                              ) : (
+                                <>−{fmtH(ln.deficitHoras)} h</>
+                              )}
+                            </td>
+                            <td className="p-2 text-right font-mono">{fmtH(ln.disponibleParaMover)} h</td>
+                            <td className="p-2">
+                              <span className={`rounded-r4 px-1.5 py-0.5 text-[10px] font-semibold ${estadoCls}`}>
+                                {etiquetaEstadoLineaRedistribucion(ln.estado)}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
 
+              {mostrarDetalleLegacyAsignacionesUi ? (
+                <div className="rounded-r8 border border-bdr/80 bg-white/60">
+                  <button
+                    type="button"
+                    onClick={() => setLegacyAsignacionesAbierto((v) => !v)}
+                    className="flex min-h-[40px] w-full items-center justify-between gap-2 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-t500"
+                  >
+                    Detalle legacy de asignaciones
+                    <ChevronDown
+                      size={14}
+                      className={`shrink-0 text-t400 transition-transform ${legacyAsignacionesAbierto ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {legacyAsignacionesAbierto ? (
+                    <div className="border-t border-bdr px-2 pb-3 pt-1">
+                      <p className="mb-2 px-1 text-[10px] leading-snug text-t500">
+                        Cupos por asignaciones_horas (cerradas, comprometidas activas, gasto Bloque 2). No define la lectura
+                        operativa principal.
+                      </p>
+                      <div className="overflow-x-auto rounded-r6 border border-bdr">
+                        <table className="w-full min-w-[480px] border-collapse text-[10px]">
+                          <thead>
+                            <tr className="border-b border-bdr bg-surface2 text-left text-t500">
+                              <th className="p-1.5">Cat.</th>
+                              <th className="p-1.5 text-right">Cons. hist.</th>
+                              <th className="p-1.5 text-right">Gasto act.</th>
+                              <th className="p-1.5 text-right">Comprom.</th>
+                              <th className="p-1.5 text-right">Saldo legacy</th>
+                              <th className="p-1.5 text-right">Mín. operativo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lineas.map((ln) => (
+                              <tr key={`leg-${ln.categoria}`} className="border-b border-bdr/60">
+                                <td className="p-1.5 font-mono font-semibold">{ln.categoria}</td>
+                                <td className="p-1.5 text-right font-mono">{fmtH(ln.consumidoHistoricoCerrado)} h</td>
+                                <td className="p-1.5 text-right font-mono">{fmtH(ln.gastoRealActivo)} h</td>
+                                <td className="p-1.5 text-right font-mono">{fmtH(ln.comprometidoActivo)} h</td>
+                                <td className="p-1.5 text-right font-mono">{fmtH(ln.saldoLegacyAsignaciones)} h</td>
+                                <td className="p-1.5 text-right font-mono">{fmtH(ln.minHorasPermitidas)} h</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="rounded-r8 border border-bdr bg-white px-3 py-3 shadow-xs">
                 <div className="text-[13px] font-semibold text-t900">Agregar horas a categoría</div>
                 <p className="mt-1 text-[11px] leading-snug text-t600">
                   Elija la categoría que necesita más horas y cuántas desea sumar. El sistema compensa UF automáticamente
-                  desde otras categorías con disponibilidad para mover, priorizando la mayor UF disponible por categoría.
+                  desde otras categorías con saldo positivo (presupuesto − gasto real RegistroHora), priorizando la mayor UF
+                  disponible por categoría.
                 </p>
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
@@ -281,7 +472,13 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                     <Select
                       value={categoriaDestino}
                       onValueChange={(v) => {
-                        if (v) setCategoriaDestino(v as AsignacionHoraCategoria);
+                        if (!v) return;
+                        const cat = v as AsignacionHoraCategoria;
+                        setCategoriaDestino(cat);
+                        aplicarHorasSugeridasDestino(cat);
+                        setMensajeAuto(null);
+                        setMensajeExitoParcial(null);
+                        setErrores([]);
                       }}
                     >
                       <SelectTrigger className="w-full rounded-r8 font-mono">
@@ -311,6 +508,26 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                     />
                   </div>
                 </div>
+                {lineaDestino && lineaDestino.deficitHoras > 0 ? (
+                  <div className="mt-3 rounded-r8 border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] leading-snug text-rose-950">
+                    <p className="font-semibold">{mensajeDeficitCategoriaDestino(lineaDestino)}</p>
+                    {!compensacionParcial.mostrarOpcionMaximo ? (
+                      <p className="mt-1 text-rose-900/90">
+                        Se sugirieron{" "}
+                        <span className="font-mono font-semibold">
+                          {fmtH(horasAgregarSugeridasParaRegularizarDeficit(lineaDestino))} h
+                        </span>{" "}
+                        a agregar (déficit completo). Sumar menos dejará el presupuesto por debajo del gasto real
+                        RegistroHora.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {compensacionParcial.mensajeInsuficiencia ? (
+                  <div className="mt-3 rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-950">
+                    <p>{compensacionParcial.mensajeInsuficiencia}</p>
+                  </div>
+                ) : null}
                 {tarifas && horasAAgregarRedondeadas > 0 ? (
                   <p className="mt-2 text-[10px] leading-snug text-t500">
                     Tras redondeo (0,5 h hacia arriba): <span className="font-mono font-semibold">{horasAAgregarRedondeadas.toFixed(1)}</span> h en{" "}
@@ -322,7 +539,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                     Las horas se redondean hacia arriba al múltiplo de 0,5 h (p. ej. 13,1 → 13,5; 13,6 → 14,0).
                   </p>
                 )}
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="secondary"
@@ -333,7 +550,28 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                   >
                     Calcular redistribución
                   </Button>
+                  {compensacionParcial.mostrarOpcionMaximo ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-r8 border-amber-300 bg-amber-50/80 text-amber-950 hover:bg-amber-100"
+                      onClick={onRedistribuirMaximoDisponible}
+                      disabled={!tarifas}
+                    >
+                      Redistribuir máximo disponible
+                    </Button>
+                  ) : null}
                 </div>
+
+                {mensajeExitoParcial ? (
+                  <div className="mt-3 rounded-r8 border border-teal-600/35 bg-teal-500/10 px-3 py-2 text-[11px] text-teal-950">
+                    <p className="font-semibold">{mensajeExitoParcial}</p>
+                    <p className="mt-1 text-teal-900/90">
+                      Revise las horas finales y la comparación UF. Complete el comentario para guardar.
+                    </p>
+                  </div>
+                ) : null}
 
                 {ultimoResultadoRedist?.codigo === "ok" ? (
                   <div className="mt-3 rounded-r8 border border-teal-600/35 bg-teal-500/10 px-3 py-2 text-[11px] text-teal-950">
@@ -380,20 +618,25 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                   </div>
                 ) : null}
 
-                {ultimoResultadoRedist && ultimoResultadoRedist.codigo !== "ok" ? (
-                  <div
-                    className={
-                      ultimoResultadoRedist.codigo === "sin_disponibilidad"
-                        ? "mt-3 rounded-r8 border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-950"
-                        : "mt-3 rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-950"
-                    }
-                  >
-                    <p className="mb-1 font-semibold">No se pudo cuadrar la redistribución</p>
-                    <ul className="list-inside list-disc space-y-1 leading-snug">
-                      {ultimoResultadoRedist.mensajes.map((m, i) => (
-                        <li key={`${i}-${m.slice(0, 120)}`}>{m}</li>
-                      ))}
-                    </ul>
+                {mensajeAuto ? (
+                  <div className="mt-3 rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-950">
+                    <p className="leading-snug">{mensajeAuto}</p>
+                    {ultimoResultadoRedist && ultimoResultadoRedist.mensajes.length > 0 ? (
+                      <button
+                        type="button"
+                        className="mt-2 text-[10px] font-semibold text-amber-900 underline"
+                        onClick={() => setDetalleAutoExpandido((v) => !v)}
+                      >
+                        {detalleAutoExpandido ? "Ocultar detalle técnico" : "Ver detalle técnico"}
+                      </button>
+                    ) : null}
+                    {detalleAutoExpandido && ultimoResultadoRedist ? (
+                      <ul className="mt-2 list-inside list-disc space-y-1 text-[10px] leading-snug text-amber-900/90">
+                        {ultimoResultadoRedist.mensajes.map((m, i) => (
+                          <li key={`${i}-${m.slice(0, 120)}`}>{m}</li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -445,40 +688,48 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
 
             <div ref={resultadosPanelRef} className="space-y-4 text-[12px] text-t800">
               <div>
-                <div className="mb-1 font-semibold text-t900">Horas finales propuestas</div>
+                <div className="mb-1 font-semibold text-t900">Ajuste manual — horas finales por categoría</div>
                 <p className="mb-2 text-[11px] leading-snug text-t600">
-                  Valores que quedarían en el entregable tras la redistribución. Si edita aquí, pulse de nuevo{" "}
-                  <span className="font-semibold">Calcular redistribución</span> para alinear compensación UF automática.
+                  Edite L2 / P4 / P3 / P2 con precisión de 0,1 h (hasta 0,01 h internamente). La UF se recalcula al
+                  instante; puede guardar cuando ΔUF esté dentro de ±{UF_REDISTRIBUCION_TOLERANCIA} UF.
                 </p>
-                {edicionManualHorasPropuestas ? (
-                  <div className="mb-2 rounded-r6 border border-amber-200/90 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-950">
-                    Ha modificado horas manualmente: la compensación multiorigen puede no coincidir con estos valores. Use{" "}
-                    <span className="font-semibold">Calcular redistribución</span> o revise UF antes de guardar.
-                  </div>
-                ) : null}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
-                  {CATEGORIAS_REDIST.map((c) => (
-                    <div key={c} className="flex flex-col gap-1">
-                      <Label className="text-[11px]">{c}</Label>
-                      <Input
-                        type="number"
-                        step={0.5}
-                        className="font-mono"
-                        value={horasEdit[c]}
-                        onChange={(ev) => {
-                          const v = Number(ev.target.value);
-                          setEdicionManualHorasPropuestas(true);
-                          setHorasEdit((prev) => ({ ...prev, [c]: Number.isFinite(v) ? v : prev[c] }));
-                        }}
-                        onBlur={() => {
-                          setHorasEdit((prev) => ({
-                            ...prev,
-                            [c]: normalizarAMediaHoraMasCercano(prev[c]),
-                          }));
-                        }}
-                      />
-                    </div>
-                  ))}
+                  {CATEGORIAS_REDIST.map((c) => {
+                    const ln = lineas.find((l) => l.categoria === c);
+                    return (
+                      <div key={c} className="flex flex-col gap-1">
+                        <Label className="text-[11px]">{c}</Label>
+                        <Input
+                          type="number"
+                          step={0.1}
+                          min={0}
+                          className="font-mono"
+                          value={
+                            Number.isFinite(horasEdit[c])
+                              ? redondearHorasAjusteManual(horasEdit[c])
+                              : 0
+                          }
+                          onChange={(ev) => {
+                            const v = Number(ev.target.value);
+                            setMensajeAuto(null);
+                            setMensajeExitoParcial(null);
+                            setHorasEdit((prev) => ({
+                              ...prev,
+                              [c]: Number.isFinite(v) ? redondearHorasAjusteManual(v) : prev[c],
+                            }));
+                          }}
+                        />
+                        {ln ? (
+                          <span className="text-[9px] text-t400">
+                            Gasto real RegistroHora: {fmtH(ln.gastoRealRegistroHora)} h
+                            {ln.deficitHoras > 0
+                              ? ` · déficit ${fmtH(ln.deficitHoras)} h`
+                              : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -504,6 +755,13 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                     </span>
                   ) : null}
                 </div>
+                {!puedeGuardar && erroresGuardadoVivo.length > 0 ? (
+                  <ul className="mt-2 list-inside list-disc rounded-r6 border border-rose-200/80 bg-rose-50/80 px-2.5 py-1.5 text-[10px] text-rose-900">
+                    {erroresGuardadoVivo.map((e) => (
+                      <li key={e}>{e}</li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
 
               <div>
@@ -528,9 +786,12 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                           <tr key={c} className="border-b border-bdr/60">
                             <td className="p-2 font-mono font-semibold">{c}</td>
                             <td className="p-2 font-mono">{tarifas ? tarifas[c].toFixed(4) : "—"}</td>
-                            <td className="p-2 font-mono">{horasActuales[c].toFixed(1)}</td>
-                            <td className="p-2 font-mono">{horasEdit[c].toFixed(1)}</td>
-                            <td className="p-2 font-mono">{dh.toFixed(1)}</td>
+                            <td className="p-2 font-mono">{fmtHorasTabla(horasActuales[c])}</td>
+                            <td className="p-2 font-mono">{fmtHorasTabla(horasEdit[c])}</td>
+                            <td className="p-2 font-mono">
+                              {dh > 0 ? "+" : ""}
+                              {fmtHorasTabla(dh)}
+                            </td>
                             <td className="p-2 font-mono">{tarifas ? duf.toFixed(4) : "—"}</td>
                           </tr>
                         );
@@ -573,7 +834,8 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
             type="button"
             className="rounded-r8"
             onClick={onGuardar}
-            disabled={!tarifas || !CATEGORIAS_REDIST.every((c) => esMultiploDeMediaHora(horasEdit[c]))}
+            disabled={!puedeGuardar}
+            title={!puedeGuardar ? "Revise ΔUF, mínimos por categoría y comentario" : undefined}
           >
             Guardar redistribución
           </Button>

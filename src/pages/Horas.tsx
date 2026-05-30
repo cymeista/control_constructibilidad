@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, AlertTriangle, ExternalLink } from "lucide-react";
-import { useNavigate, type NavigateFunction } from "react-router";
+import { useNavigate, useSearchParams, type NavigateFunction } from "react-router";
 import { useAppData } from "@/context/AppDataContext";
 import SectionHeader from "@/components/SectionHeader";
 import KpiCard, { kpiCardsGridClassName } from "@/components/KpiCard";
@@ -13,14 +13,22 @@ import { buildConsumoMaps } from "@/entregables/asignacionHoraConsumo";
 import { esRegistroConsumoRealValido } from "@/entregables/registroHoraConsumo";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import { useAuth } from "@/security/AuthContext";
-import { canAsignar, canViewRouteForSession } from "@/security/permissions";
+import { canGestionarEquipoEntregable, canRedistribuir, canViewRouteForSession } from "@/security/permissions";
+import HorasEntregableDetalleOperativo from "@/components/horas/HorasEntregableDetalleOperativo";
+import {
+  buildControlCategoriasEntregable,
+  entregableTieneDeficitCategoria,
+  gastoRealPorCategoriaDesdeMapaProf,
+  presupuestoCategoriaEntregable,
+  toCategoriaProfesional,
+  type CategoriaControlRow,
+} from "@/horas/entregableControlCategoria";
 import {
   entregablePasaFiltroActivosGestionHoras,
   estadoNormalizadoEntregableGestionHoras,
 } from "@/entregables/entregableGestionHorasFiltros";
 
 const TOLERANCIA_GASTO_VS_AVANCE_PUNTOS = 20;
-const CATEGORIAS: AsignacionHoraCategoria[] = ["L2", "P4", "P3", "P2"];
 
 type ProfBreakdown = {
   profesional: Profesional;
@@ -48,6 +56,8 @@ type EntregableAnalisis = {
   alertaGastoVsAvance: boolean;
   alertaSinAsignacion: boolean;
   professionals: ProfBreakdown[];
+  controlCategorias: CategoriaControlRow[];
+  tieneDeficitCategoria: boolean;
 };
 
 const fmtH = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -59,29 +69,10 @@ function toPct(x: number): number {
   return Math.max(0, x);
 }
 
-function toCategoria(cargo: string): AsignacionHoraCategoria {
-  return CATEGORIAS.includes(cargo as AsignacionHoraCategoria) ? (cargo as AsignacionHoraCategoria) : "P4";
-}
-
 function nivelSemaforo(row: EntregableAnalisis): "normal" | "atencion" | "critico" {
   if (row.alertaSobreconsumo || (row.diferenciaGastoVsAvance ?? 0) > 35) return "critico";
   if (row.alertaGastoVsAvance || (row.pctHorasGastadas ?? 0) > 100) return "atencion";
   return "normal";
-}
-
-function presupuestoCategoriaEntregable(ent: Entregable, cat: AsignacionHoraCategoria): number {
-  switch (cat) {
-    case "L2":
-      return Number(ent.hrs_l2);
-    case "P4":
-      return Number(ent.hrs_p4);
-    case "P3":
-      return Number(ent.hrs_p3);
-    case "P2":
-      return Number(ent.hrs_p2);
-    default:
-      return 0;
-  }
 }
 
 function nombrePmProyecto(pr: Proyecto): string {
@@ -96,57 +87,29 @@ function codigoFaseEntregable(ent: Entregable): string {
   return f || t || "";
 }
 
-function irFormulariosAsignacion(row: EntregableAnalisis, navigate: NavigateFunction) {
-  navigate(
-    `/formularios?entity=asignaciones_horas&cliente_id=${encodeURIComponent(row.cliente.id)}&proyecto_id=${encodeURIComponent(row.proyecto.id)}&entregable_id=${encodeURIComponent(row.entregable.id)}`,
-  );
-}
-
-function irFormulariosNormalizar(row: EntregableAnalisis, navigate: NavigateFunction) {
-  const sinAsig = row.professionals.find((p) => p.sinAsignacion);
-  const params = new URLSearchParams({
-    entity: "asignaciones_horas",
-    cliente_id: row.cliente.id,
-    proyecto_id: row.proyecto.id,
-    entregable_id: row.entregable.id,
-  });
-  if (sinAsig) {
-    params.set("profesional_id", sinAsig.profesional.id);
-    params.set("horas", String(sinAsig.horasGastadas));
-  }
-  navigate(`/formularios?${params.toString()}`);
-}
-
 function EntregableAccionesHoras({
   row,
   puedeVerFormularios,
-  puedeAsignar,
   navigate,
   touchFriendly,
+  ocultarRedistribuir,
 }: {
   row: EntregableAnalisis;
   puedeVerFormularios: boolean;
-  puedeAsignar: boolean;
   navigate: NavigateFunction;
   touchFriendly?: boolean;
+  /** Evita duplicar el botón cuando ya se muestra en Control por categoría. */
+  ocultarRedistribuir?: boolean;
 }) {
   const btn = touchFriendly
     ? "min-h-[44px] flex-1 rounded-r8 px-3 py-2.5 text-[12px] font-semibold"
     : "min-h-[40px] flex-1 rounded-r8 px-3 py-2 text-[11px] font-semibold";
   return (
     <div className={`flex flex-wrap gap-2 ${touchFriendly ? "pt-1" : "mt-2"}`}>
-      {puedeAsignar ? (
-        <Button type="button" variant="outline" className={`${btn} gap-1 border-bdr`} onClick={() => irFormulariosAsignacion(row, navigate)}>
-          Asignar
-        </Button>
-      ) : null}
-      <div className="flex min-h-[40px] flex-1 items-stretch [&_button]:min-h-[40px] [&_button]:w-full">
-        <EntregableRedistribuirHorasTrigger ent={row.entregable} dense showBadges={false} className="w-full" />
-      </div>
-      {puedeVerFormularios && row.alertaSinAsignacion ? (
-        <Button type="button" variant="outline" className={`${btn} gap-1 border-bdr`} onClick={() => irFormulariosNormalizar(row, navigate)}>
-          Normalizar
-        </Button>
+      {!ocultarRedistribuir ? (
+        <div className="flex min-h-[40px] flex-1 items-stretch [&_button]:min-h-[40px] [&_button]:w-full">
+          <EntregableRedistribuirHorasTrigger ent={row.entregable} dense showBadges={false} className="w-full" />
+        </div>
       ) : null}
       {puedeVerFormularios ? (
         <Button
@@ -166,9 +129,12 @@ function EntregableAccionesHoras({
 
 export default function Horas() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const entregableIdFromUrl = (searchParams.get("entregable_id") ?? "").trim() || null;
   const { role } = useAuth();
   const puedeVerFormularios = canViewRouteForSession(role, "/formularios");
-  const puedeAsignar = role ? canAsignar(role) : false;
+  const puedeGestionarEquipo = role ? canGestionarEquipoEntregable(role) : false;
+  const puedeRedistribuir = role ? canRedistribuir(role) : false;
   const {
     clientes,
     proyectos,
@@ -186,6 +152,20 @@ export default function Horas() {
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [expandedDeliverables, setExpandedDeliverables] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!entregableIdFromUrl) return;
+    const ent = entregables.find((e) => e.id === entregableIdFromUrl);
+    if (!ent) return;
+    const pr = proyectos.find((p) => p.id === ent.proyecto_id);
+    if (!pr) return;
+    setFilterClient(pr.cliente_id);
+    setFilterProject(pr.id);
+    setFilterStatus("TODOS");
+    setExpandedClients(new Set([pr.cliente_id]));
+    setExpandedProjects(new Set([pr.id]));
+    setExpandedDeliverables(new Set([entregableIdFromUrl]));
+  }, [entregableIdFromUrl, entregables, proyectos]);
 
   const clientMap = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
   const projMap = useMemo(() => new Map(proyectos.map((p) => [p.id, p])), [proyectos]);
@@ -236,18 +216,9 @@ export default function Horas() {
       const gastoProf = horasGastadasPorEntregableYProf.get(ent.id) ?? new Map<string, number>();
       const asigsEnt = asignaciones_horas.filter((a) => a.entregable_id === ent.id);
       const pids = new Set<string>([...gastoProf.keys(), ...asigsEnt.map((a) => a.profesional_id)]);
-      const gastoCategoria = new Map<AsignacionHoraCategoria, number>([
-        ["L2", 0],
-        ["P4", 0],
-        ["P3", 0],
-        ["P2", 0],
-      ]);
-      gastoProf.forEach((h, pid) => {
-        const prof = profMap.get(pid);
-        if (!prof) return;
-        const cat = toCategoria(prof.cargo);
-        gastoCategoria.set(cat, (gastoCategoria.get(cat) ?? 0) + h);
-      });
+      const gastoCategoria = gastoRealPorCategoriaDesdeMapaProf(gastoProf, profMap);
+      const controlCategorias = buildControlCategoriasEntregable(ent, gastoCategoria);
+      const tieneDeficitCategoria = entregableTieneDeficitCategoria(controlCategorias);
 
       const professionals: ProfBreakdown[] = [...pids]
         .map((pid) => {
@@ -260,7 +231,7 @@ export default function Horas() {
               ? "APOYO"
               : "SIN_ROL";
           const horasGastadasProf = gastoProf.get(pid) ?? 0;
-          const categoria = toCategoria(p.cargo);
+          const categoria = toCategoriaProfesional(p.cargo);
           const presupuestoCat = presupuestoCategoriaEntregable(ent, categoria);
           const sobreconsumoCategoria = (gastoCategoria.get(categoria) ?? 0) > presupuestoCat + 1e-9;
           const sinAsignacion = horasGastadasProf > 0 && asigsProfEnt.length === 0;
@@ -295,6 +266,8 @@ export default function Horas() {
         alertaGastoVsAvance,
         alertaSinAsignacion,
         professionals,
+        controlCategorias,
+        tieneDeficitCategoria,
       });
     }
     return result;
@@ -376,100 +349,6 @@ export default function Horas() {
     { value: "SOLO_ALERTA", label: "Solo con alerta" },
     { value: "TODOS", label: "Todos" },
   ];
-
-  const renderDetalleProfesionales = (row: EntregableAnalisis, mobile: boolean): ReactNode => {
-    return CATEGORIAS.map((cat) => {
-      const rowsCat = row.professionals.filter((p) => p.categoria === cat);
-      if (rowsCat.length === 0) return null;
-      const alertaCat = rowsCat.some((p) => p.alertaSobreconsumoCategoria);
-      if (mobile) {
-        return (
-          <div key={`${row.entregable.id}-${cat}-m`} className="mb-2 rounded-r8 border border-bdr bg-white">
-            <div className="flex items-center justify-between border-b border-bdr bg-surface2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-t500">
-              <span>{cat}</span>
-              {alertaCat ? <span className="text-[9px] font-semibold text-rose-800">Sobreconsumo</span> : null}
-            </div>
-            <div className="divide-y divide-bdr/60">
-              {rowsCat.map((p) => {
-                const estado = p.sinAsignacion
-                  ? "Falta asignación"
-                  : p.alertaSobreconsumoCategoria
-                    ? "Sobreconsumo"
-                    : "En rango";
-                return (
-                  <div key={`${row.entregable.id}-${p.profesional.id}-m`} className="space-y-1.5 px-3 py-2.5">
-                    <p className="text-[13px] font-medium text-t900">{p.profesional.nombre_completo}</p>
-                    <p className="text-[11px] text-t500">
-                      {p.rol === "LIDER" ? "Líder" : p.rol === "APOYO" ? "Apoyo" : "Sin rol"} · Presup. {fmtH(p.horasPresupuestoCategoria)} · Gastadas{" "}
-                      {fmtH(p.horasGastadas)}
-                    </p>
-                    <span
-                      className={`inline-block rounded-r4 px-1.5 py-0.5 text-[10px] font-semibold ${
-                        p.sinAsignacion
-                          ? "bg-orange-100 text-orange-800"
-                          : p.alertaSobreconsumoCategoria
-                            ? "bg-rose-100 text-rose-800"
-                            : "bg-emerald-100 text-emerald-800"
-                      }`}
-                    >
-                      {estado}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      }
-      return (
-        <div key={`${row.entregable.id}-${cat}`} className="mb-3 overflow-hidden rounded-r8 border border-bdr bg-white">
-          <div className="flex items-center justify-between border-b border-bdr bg-surface2 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-t500">
-            <span>{cat}</span>
-            {alertaCat && (
-              <span className="rounded-r4 bg-rose-100 px-1.5 py-0.5 text-[9px] text-rose-800">Sobreconsumo categoría</span>
-            )}
-          </div>
-          <table className="w-full">
-            <thead>
-              <tr className="bg-[#F9FAFB]">
-                <th className="px-3 py-[6px] text-left text-[9px] font-semibold uppercase text-t400">Profesional</th>
-                <th className="px-3 py-[6px] text-left text-[9px] font-semibold uppercase text-t400">Rol</th>
-                <th className="px-3 py-[6px] text-right text-[9px] font-semibold uppercase text-t400">Presup. categoría</th>
-                <th className="px-3 py-[6px] text-right text-[9px] font-semibold uppercase text-t400">Gastadas</th>
-                <th className="px-3 py-[6px] text-left text-[9px] font-semibold uppercase text-t400">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rowsCat.map((p) => {
-                const estado = p.sinAsignacion
-                  ? "Sin asignación"
-                  : p.alertaSobreconsumoCategoria
-                    ? "Sobreconsumo categoría"
-                    : "En rango";
-                return (
-                  <tr key={`${row.entregable.id}-${p.profesional.id}`} className="border-b border-[#F0F2F8] last:border-b-0">
-                    <td className="px-3 py-[6px] text-[11px] text-t700">{p.profesional.nombre_completo}</td>
-                    <td className="px-3 py-[6px] text-[11px] text-t600">{p.rol === "SIN_ROL" ? "Sin asignación" : p.rol === "LIDER" ? "Líder" : "Apoyo"}</td>
-                    <td className="px-3 py-[6px] text-right text-[11px] font-mono text-t700">{fmtH(p.horasPresupuestoCategoria)}</td>
-                    <td className="px-3 py-[6px] text-right text-[11px] font-mono text-t700">{fmtH(p.horasGastadas)}</td>
-                    <td className="px-3 py-[6px] text-[10px]">
-                      {p.sinAsignacion ? (
-                        <span className="rounded-r4 bg-orange-100 px-1.5 py-0.5 text-orange-800">{estado}</span>
-                      ) : p.alertaSobreconsumoCategoria ? (
-                        <span className="rounded-r4 bg-rose-100 px-1.5 py-0.5 text-rose-800">{estado}</span>
-                      ) : (
-                        <span className="rounded-r4 bg-emerald-100 px-1.5 py-0.5 text-emerald-800">{estado}</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      );
-    });
-  };
 
   return (
     <div className="animate-fade-in min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-0">
@@ -632,29 +511,25 @@ export default function Horas() {
                                 )}
                               </div>
 
-                              {renderDetalleProfesionales(row, false)}
-
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {puedeVerFormularios ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => navigate("/formularios")}
-                                      className="inline-flex items-center gap-1 rounded-r8 border border-bdr bg-white px-3 py-1.5 text-[11px] font-semibold text-t700 hover:bg-surface2"
-                                    >
-                                      Ir a asignaciones <ExternalLink size={12} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => navigate("/formularios")}
-                                      className="inline-flex items-center gap-1 rounded-r8 border border-bdr bg-white px-3 py-1.5 text-[11px] font-semibold text-t700 hover:bg-surface2"
-                                    >
-                                      Normalizar asignación <ExternalLink size={12} />
-                                    </button>
-                                  </>
-                                ) : null}
-                                <EntregableRedistribuirHorasTrigger ent={row.entregable} dense />
-                              </div>
+                              <HorasEntregableDetalleOperativo
+                                entregable={row.entregable}
+                                controlCategorias={row.controlCategorias}
+                                gastoPorProfesional={
+                                  horasGastadasPorEntregableYProf.get(row.entregable.id) ?? new Map()
+                                }
+                                profMap={profMap}
+                                tieneDeficitCategoria={row.tieneDeficitCategoria}
+                                puedeGestionarEquipo={puedeGestionarEquipo}
+                                puedeRedistribuir={puedeRedistribuir}
+                                accionesSecundarias={
+                                  <EntregableAccionesHoras
+                                    row={row}
+                                    puedeVerFormularios={puedeVerFormularios}
+                                    navigate={navigate}
+                                    ocultarRedistribuir={row.tieneDeficitCategoria && puedeRedistribuir}
+                                  />
+                                }
+                              />
                             </div>
                           )}
                         </div>
@@ -798,20 +673,32 @@ export default function Horas() {
                                             </span>
                                           ) : null}
                                         </div>
-                                        {renderDetalleProfesionales(row, true)}
-                                        <EntregableAccionesHoras
-                                          row={row}
-                                          puedeVerFormularios={puedeVerFormularios}
-                                          puedeAsignar={puedeAsignar}
-                                          navigate={navigate}
-                                          touchFriendly
+                                        <HorasEntregableDetalleOperativo
+                                          entregable={row.entregable}
+                                          controlCategorias={row.controlCategorias}
+                                          gastoPorProfesional={
+                                            horasGastadasPorEntregableYProf.get(row.entregable.id) ?? new Map()
+                                          }
+                                          profMap={profMap}
+                                          tieneDeficitCategoria={row.tieneDeficitCategoria}
+                                          puedeGestionarEquipo={puedeGestionarEquipo}
+                                          puedeRedistribuir={puedeRedistribuir}
+                                          accionesSecundarias={
+                                            <EntregableAccionesHoras
+                                              row={row}
+                                              puedeVerFormularios={puedeVerFormularios}
+                                              navigate={navigate}
+                                              touchFriendly
+                                              ocultarRedistribuir={row.tieneDeficitCategoria && puedeRedistribuir}
+                                            />
+                                          }
+                                          mobile
                                         />
                                       </div>
                                     ) : (
                                       <EntregableAccionesHoras
                                         row={row}
                                         puedeVerFormularios={puedeVerFormularios}
-                                        puedeAsignar={puedeAsignar}
                                         navigate={navigate}
                                         touchFriendly
                                       />

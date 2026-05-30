@@ -11,8 +11,14 @@ import type {
   Proyecto,
   RegistroHora,
 } from "@/context/AppDataContext";
+import { buildConsumoMaps, sumaGastoActivoActualPorCategoria } from "@/entregables/asignacionHoraConsumo";
 import { desgloseCupoCategoriaEntregable } from "@/entregables/asignacionHoraRules";
-import { sumaGastoActivoActualPorCategoria } from "@/entregables/asignacionHoraConsumo";
+import { esRegistroConsumoRealValido } from "@/entregables/registroHoraConsumo";
+import {
+  buildControlCategoriasEntregable,
+  gastoRealPorCategoriaDesdeMapaProf,
+  type CategoriaControlEstado,
+} from "@/horas/entregableControlCategoria";
 
 export const CATEGORIAS_REDIST: AsignacionHoraCategoria[] = ["L2", "P4", "P3", "P2"];
 
@@ -83,15 +89,52 @@ export function normalizarAMediaHoraMasCercano(h: number): number {
 export type LineaRedistribucionCategoria = {
   categoria: AsignacionHoraCategoria;
   presupuesto: number;
+  /** Gasto DIRECTA válido total del entregable por categoría (RegistroHora; alineado con Gestión de Horas). */
+  gastoRealRegistroHora: number;
+  /** presupuesto − gastoRealRegistroHora */
+  saldoCategoria: number;
+  /** max(0, saldoCategoria); usado por el motor de propuesta UF. */
+  disponibleParaMover: number;
+  /** max(0, gastoRealRegistroHora − presupuesto); si sin presupuesto con gasto = gasto total. */
+  deficitHoras: number;
+  estado: CategoriaControlEstado;
+  minHorasPermitidas: number;
+  /** Legacy asignaciones_horas (solo lectura / detalle colapsado). */
   consumidoHistoricoCerrado: number;
   gastoRealActivo: number;
   comprometidoActivo: number;
-  disponibleParaMover: number;
-  deficitHoras: number;
-  minHorasPermitidas: number;
-  saldoRealCategoria: number;
+  saldoLegacyAsignaciones: number;
 };
 
+export function etiquetaEstadoLineaRedistribucion(estado: CategoriaControlEstado): string {
+  if (estado === "OK") return "OK";
+  if (estado === "SIN_PRESUPUESTO_CON_GASTO") return "Sin presupuesto con gasto";
+  return "Déficit";
+}
+
+function gastoDirectoPorProfesionalEnEntregable(
+  entregableId: string,
+  registro_horas: RegistroHora[],
+  entregables: Entregable[],
+  proyectos: Proyecto[],
+  profesionales: Profesional[],
+): Map<string, number> {
+  const { entById, projById, profById } = buildConsumoMaps(entregables, proyectos, profesionales);
+  const out = new Map<string, number>();
+  for (const r of registro_horas) {
+    if (!esRegistroConsumoRealValido(r, entById, projById, profById)) continue;
+    if ((r.entregable_id ?? "").trim() !== entregableId) continue;
+    const pid = (r.profesional_id ?? "").trim();
+    if (!pid) continue;
+    out.set(pid, (out.get(pid) ?? 0) + Number(r.horas));
+  }
+  return out;
+}
+
+/**
+ * Líneas operativas (presupuesto vs gasto RegistroHora) + campos legacy de asignaciones.
+ * Fase 1: disponibleParaMover y déficit siguen la misma lógica que Control por categoría en Gestión de Horas.
+ */
 export function construirLineasRedistribucion(
   ent: Entregable,
   asignaciones: AsignacionHora[],
@@ -101,8 +144,22 @@ export function construirLineasRedistribucion(
   profesionales: Profesional[],
   fechaHoy: string,
 ): LineaRedistribucionCategoria[] {
+  const profMap = new Map(profesionales.map((p) => [p.id, p]));
+  const gastoProf = gastoDirectoPorProfesionalEnEntregable(
+    ent.id,
+    registro_horas,
+    entregables,
+    proyectos,
+    profesionales,
+  );
+  const gastoCategoriaMap = gastoRealPorCategoriaDesdeMapaProf(gastoProf, profMap);
+  const controlPorCat = new Map(
+    buildControlCategoriasEntregable(ent, gastoCategoriaMap).map((r) => [r.categoria, r]),
+  );
+
   const out: LineaRedistribucionCategoria[] = [];
   for (const c of CATEGORIAS_REDIST) {
+    const ctrl = controlPorCat.get(c)!;
     const d = desgloseCupoCategoriaEntregable(ent, asignaciones, c);
     const gastoRealActivo = sumaGastoActivoActualPorCategoria(
       ent.id,
@@ -114,20 +171,28 @@ export function construirLineasRedistribucion(
       profesionales,
       fechaHoy,
     );
-    const disponibleParaMover = Math.max(0, d.presupuesto - d.consumidoHistoricoCerrado - d.asignadoActivo);
-    const deficitHoras = Math.max(0, d.consumidoHistoricoCerrado + gastoRealActivo - d.presupuesto);
-    const minHorasPermitidas = d.consumidoHistoricoCerrado + Math.max(d.asignadoActivo, gastoRealActivo);
-    const saldoRealCategoria = d.presupuesto - d.consumidoHistoricoCerrado - gastoRealActivo;
+
+    const gastoRealRegistroHora = ctrl.gastoReal;
+    const saldoCategoria = ctrl.saldo;
+    const disponibleParaMover = Math.max(0, saldoCategoria);
+    const deficitHoras = ctrl.deficitHoras;
+    const minHorasPermitidas =
+      d.consumidoHistoricoCerrado +
+      Math.max(d.asignadoActivo, gastoRealActivo, gastoRealRegistroHora);
+
     out.push({
       categoria: c,
-      presupuesto: d.presupuesto,
+      presupuesto: ctrl.presupuesto,
+      gastoRealRegistroHora,
+      saldoCategoria,
+      disponibleParaMover,
+      deficitHoras,
+      estado: ctrl.estado,
+      minHorasPermitidas,
       consumidoHistoricoCerrado: d.consumidoHistoricoCerrado,
       gastoRealActivo,
       comprometidoActivo: d.asignadoActivo,
-      disponibleParaMover,
-      deficitHoras,
-      minHorasPermitidas,
-      saldoRealCategoria,
+      saldoLegacyAsignaciones: d.presupuesto - d.consumidoHistoricoCerrado - gastoRealActivo,
     });
   }
   return out;
@@ -280,8 +345,11 @@ function propuestaAgregarManualCumple(
   const du =
     calcularUfEntregablePorCategoria(horasProp, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
   if (Math.abs(du) > UF_REDISTRIBUCION_TOLERANCIA) return false;
-  const errs = validarRedistribucionHoras(horasActuales, horasProp, lineas, tarifas, ".");
-  return errs.filter((e) => !e.toLowerCase().includes("comentario")).length === 0;
+  const errs = validarRedistribucionHoras(horasActuales, horasProp, lineas, tarifas, ".", {
+    exigirMultiploMediaHora: true,
+    exigirComentario: false,
+  });
+  return errs.length === 0;
 }
 
 export type CodigoResultadoRedistribAgregar = "ok" | "sin_disponibilidad" | "sin_cuadratura";
@@ -706,26 +774,287 @@ export function refinarUfRedistribucion(
   return h;
 }
 
+export type OpcionesValidacionRedistribucion = {
+  /** Modo automático (propuesta 0,5 h). El ajuste manual en modal no exige múltiplos de 0,5. */
+  exigirMultiploMediaHora?: boolean;
+  /** Si false, no exige comentario (solo vista previa en UI). */
+  exigirComentario?: boolean;
+};
+
+/** Redondeo interno para inputs manuales (0,01 h). */
+export function redondearHorasAjusteManual(h: number): number {
+  if (!Number.isFinite(h)) return 0;
+  return Math.round(h * 100) / 100;
+}
+
+export const MENSAJE_AUTO_SIN_COMBINACION_05H =
+  "No se encontró combinación automática con redondeo 0,5 h. Puedes ajustar manualmente las horas finales manteniendo ΔUF dentro de ±0,05 UF.";
+
+/** Horas a sumar al presupuesto para cubrir el déficit operativo (gasto real − presupuesto). */
+export function horasAgregarSugeridasParaRegularizarDeficit(ln: LineaRedistribucionCategoria): number {
+  return Math.max(0, ln.deficitHoras);
+}
+
+/** Presupuesto mínimo = gasto real RegistroHora de la categoría. */
+export function presupuestoMinimoPorGastoReal(ln: LineaRedistribucionCategoria): number {
+  return ln.gastoRealRegistroHora;
+}
+
+export function mensajeDeficitCategoriaDestino(ln: LineaRedistribucionCategoria): string {
+  const deficit = ln.deficitHoras;
+  const hasta = presupuestoMinimoPorGastoReal(ln);
+  return `Esta categoría tiene déficit de ${deficit.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h. Para regularizarla, debe subir al menos hasta ${hasta.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h.`;
+}
+
+const fmtHRedist = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/** Horas que se pueden restar sin bajar del gasto real RegistroHora. */
+function maxHorasReduciblesRespetandoGastoReal(
+  ln: LineaRedistribucionCategoria,
+  horasActualesCategoria: number,
+): number {
+  const porGasto = Math.max(0, horasActualesCategoria - ln.gastoRealRegistroHora);
+  return Math.max(0, Math.min(ln.disponibleParaMover, porGasto));
+}
+
+export type EvaluacionCompensacionParcialDestino = {
+  mostrarOpcionMaximo: boolean;
+  deficitHoras: number;
+  deficitUf: number;
+  ufCompensable: number;
+  mensajeInsuficiencia: string | null;
+};
+
+/** ¿Hay déficit en destino y UF compensable en orígenes menor que el déficit completo? */
+export function evaluarCompensacionParcialDestino(
+  categoriaDestino: AsignacionHoraCategoria,
+  lineas: LineaRedistribucionCategoria[],
+  tarifas: TarifasPorCategoria,
+): EvaluacionCompensacionParcialDestino {
+  const lnDest = lineas.find((l) => l.categoria === categoriaDestino);
+  if (!lnDest || lnDest.deficitHoras <= 1e-9) {
+    return {
+      mostrarOpcionMaximo: false,
+      deficitHoras: 0,
+      deficitUf: 0,
+      ufCompensable: 0,
+      mensajeInsuficiencia: null,
+    };
+  }
+
+  const deficitHoras = lnDest.deficitHoras;
+  const deficitUf = deficitHoras * tarifas[categoriaDestino];
+  let ufCompensable = 0;
+  for (const ln of lineas) {
+    if (ln.categoria === categoriaDestino) continue;
+    if (ln.disponibleParaMover > 0) {
+      ufCompensable += ln.disponibleParaMover * tarifas[ln.categoria];
+    }
+  }
+
+  const mostrarOpcionMaximo = ufCompensable > 1e-6 && ufCompensable + 1e-6 < deficitUf;
+  const mensajeInsuficiencia = mostrarOpcionMaximo
+    ? `No hay saldo suficiente para regularizar completamente ${categoriaDestino}. Déficit requerido: ${fmtHRedist(deficitHoras)} h / ${deficitUf.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF. UF disponible para compensar: ${ufCompensable.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF. Puedes redistribuir el máximo disponible para reducir parcialmente el déficit.`
+    : null;
+
+  return { mostrarOpcionMaximo, deficitHoras, deficitUf, ufCompensable, mensajeInsuficiencia };
+}
+
+export type ResultadoRedistribucionMaximoDisponible = {
+  ok: boolean;
+  horasPropuestas: HorasPorCategoria;
+  ufAntes: number;
+  ufDespues: number;
+  diferenciaUf: number;
+  horasAgregadasDestino: number;
+  deficitResidualHoras: number;
+  ufCompensableUsada: number;
+  mensajeExito: string;
+  errores: string[];
+};
+
+/**
+ * Mueve todo el saldo compensable (presupuesto − gasto real) desde orígenes hacia destino,
+ * cuadrando UF en pasos finos (0,01 h) sin bajar orígenes bajo su gasto real RegistroHora.
+ */
+export function calcularRedistribucionMaximoDisponible(
+  lineas: LineaRedistribucionCategoria[],
+  tarifas: TarifasPorCategoria,
+  horasActuales: HorasPorCategoria,
+  categoriaDestino: AsignacionHoraCategoria,
+): ResultadoRedistribucionMaximoDisponible {
+  const lnDest = lineas.find((l) => l.categoria === categoriaDestino);
+  const baseErr = (errores: string[]): ResultadoRedistribucionMaximoDisponible => ({
+    ok: false,
+    horasPropuestas: { ...horasActuales },
+    ufAntes: calcularUfEntregablePorCategoria(horasActuales, tarifas),
+    ufDespues: calcularUfEntregablePorCategoria(horasActuales, tarifas),
+    diferenciaUf: 0,
+    horasAgregadasDestino: 0,
+    deficitResidualHoras: lnDest?.deficitHoras ?? 0,
+    ufCompensableUsada: 0,
+    mensajeExito: "",
+    errores,
+  });
+
+  if (!lnDest || lnDest.deficitHoras <= 1e-9) {
+    return baseErr(["La categoría destino no tiene déficit operativo."]);
+  }
+
+  const evalParcial = evaluarCompensacionParcialDestino(categoriaDestino, lineas, tarifas);
+  if (evalParcial.ufCompensable <= 1e-6) {
+    return baseErr(["No hay saldo disponible en otras categorías para redistribuir."]);
+  }
+
+  const rems: Partial<Record<AsignacionHoraCategoria, number>> = {};
+  let ufComp = 0;
+  for (const ln of lineas) {
+    if (ln.categoria === categoriaDestino) continue;
+    const hTake = maxHorasReduciblesRespetandoGastoReal(ln, horasActuales[ln.categoria]);
+    if (hTake <= 1e-9) continue;
+    const hR = redondearHorasAjusteManual(hTake);
+    rems[ln.categoria] = hR;
+    ufComp += hR * tarifas[ln.categoria];
+  }
+
+  if (ufComp <= 1e-6) {
+    return baseErr(["No hay horas movibles en categorías origen sin bajar del gasto real registrado."]);
+  }
+
+  let hAdd = redondearHorasAjusteManual(ufComp / tarifas[categoriaDestino]);
+  let prop: HorasPorCategoria = { ...horasActuales };
+  prop[categoriaDestino] = redondearHorasAjusteManual(horasActuales[categoriaDestino] + hAdd);
+  for (const c of CATEGORIAS_REDIST) {
+    const r = rems[c];
+    if (r && r > 0) {
+      prop[c] = redondearHorasAjusteManual(horasActuales[c] - r);
+    }
+  }
+
+  prop = refinarUfRedistribucionFino(horasActuales, prop, tarifas, lineas);
+  hAdd = redondearHorasAjusteManual(prop[categoriaDestino] - horasActuales[categoriaDestino]);
+
+  const ufAntes = calcularUfEntregablePorCategoria(horasActuales, tarifas);
+  const ufDespues = calcularUfEntregablePorCategoria(prop, tarifas);
+  const diferenciaUf = ufDespues - ufAntes;
+  const deficitResidualHoras = Math.max(0, lnDest.gastoRealRegistroHora - prop[categoriaDestino]);
+
+  const errs = validarRedistribucionHoras(horasActuales, prop, lineas, tarifas, ".", {
+    exigirMultiploMediaHora: false,
+    exigirComentario: false,
+  });
+
+  if (errs.length > 0) {
+    return { ...baseErr(errs), horasPropuestas: prop, ufAntes, ufDespues, diferenciaUf, horasAgregadasDestino: hAdd, deficitResidualHoras, ufCompensableUsada: ufComp };
+  }
+
+  const mensajeExito =
+    deficitResidualHoras > 1e-6
+      ? `Redistribución parcial: se movió todo el saldo disponible hacia ${categoriaDestino}. El déficit se reduce, pero no se elimina. (${categoriaDestino}: ${fmtHRedist(prop[categoriaDestino])} h; déficit residual ${fmtHRedist(deficitResidualHoras)} h).`
+      : `Redistribución aplicada: se transfirió el máximo saldo disponible (${fmtHRedist(hAdd)} h a ${categoriaDestino}).`;
+
+  return {
+    ok: true,
+    horasPropuestas: prop,
+    ufAntes,
+    ufDespues,
+    diferenciaUf,
+    horasAgregadasDestino: hAdd,
+    deficitResidualHoras,
+    ufCompensableUsada: ufComp,
+    mensajeExito,
+    errores: [],
+  };
+}
+
+/** Ajuste fino en pasos de 0,01 h; piso = gasto real RegistroHora por categoría. */
+export function refinarUfRedistribucionFino(
+  horasActuales: HorasPorCategoria,
+  horasPropuestas: HorasPorCategoria,
+  tarifas: TarifasPorCategoria,
+  lineas: LineaRedistribucionCategoria[],
+  pasoHoras = 0.01,
+): HorasPorCategoria {
+  const h = { ...horasPropuestas };
+  const minC = Object.fromEntries(
+    lineas.map((ln) => [ln.categoria, ln.gastoRealRegistroHora]),
+  ) as HorasPorCategoria;
+  const du = () => calcularUfEntregablePorCategoria(h, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
+  const cats = [...CATEGORIAS_REDIST];
+
+  for (let iter = 0; iter < 2000; iter++) {
+    const d = du();
+    if (Math.abs(d) <= UF_REDISTRIBUCION_TOLERANCIA) break;
+    let moved = false;
+    if (d > UF_REDISTRIBUCION_TOLERANCIA) {
+      for (const c of [...cats].sort((a, b) => tarifas[a] - tarifas[b])) {
+        if (h[c] > horasActuales[c] && h[c] - pasoHoras >= minC[c] - 1e-9) {
+          h[c] = redondearHorasAjusteManual(h[c] - pasoHoras);
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) {
+        for (const c of [...cats].sort((a, b) => tarifas[b] - tarifas[a])) {
+          if (h[c] < horasActuales[c]) {
+            h[c] = redondearHorasAjusteManual(h[c] + pasoHoras);
+            if (h[c] > horasActuales[c] + 1e-9) {
+              h[c] = redondearHorasAjusteManual(h[c] - pasoHoras);
+              continue;
+            }
+            moved = true;
+            break;
+          }
+        }
+      }
+    } else {
+      for (const c of [...cats].sort((a, b) => tarifas[b] - tarifas[a])) {
+        if (h[c] < horasActuales[c] && h[c] + pasoHoras <= horasActuales[c] + 1e-9 && h[c] + pasoHoras >= minC[c] - 1e-9) {
+          h[c] = redondearHorasAjusteManual(h[c] + pasoHoras);
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) {
+        for (const c of [...cats].sort((a, b) => tarifas[a] - tarifas[b])) {
+          if (h[c] > horasActuales[c] && h[c] - pasoHoras >= minC[c] - 1e-9) {
+            h[c] = redondearHorasAjusteManual(h[c] - pasoHoras);
+            moved = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  return h;
+}
+
+export function mensajePresupuestoBajoGastoReal(
+  categoria: AsignacionHoraCategoria,
+  presupuestoPropuesto: number,
+  ln: LineaRedistribucionCategoria,
+): string {
+  const fmt = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (ln.deficitHoras > 0) {
+    return `${categoria}: ${mensajeDeficitCategoriaDestino(ln)} Con el ajuste actual quedaría en ${fmt(presupuestoPropuesto)} h.`;
+  }
+  return `${categoria}: el presupuesto no puede quedar por debajo del gasto real registrado (${fmt(ln.gastoRealRegistroHora)} h). Valor propuesto: ${fmt(presupuestoPropuesto)} h.`;
+}
+
 export function validarRedistribucionHoras(
   horasActuales: HorasPorCategoria,
   horasNuevas: HorasPorCategoria,
   lineas: LineaRedistribucionCategoria[],
   tarifas: TarifasPorCategoria,
   comentario: string,
+  opciones?: OpcionesValidacionRedistribucion,
 ): string[] {
+  const exigir05 = opciones?.exigirMultiploMediaHora ?? false;
+  const exigirComentario = opciones?.exigirComentario ?? true;
   const errs: string[] = [];
   const t = (comentario ?? "").trim();
-  if (!t) errs.push("El comentario es obligatorio.");
-
-  for (const c of CATEGORIAS_REDIST) {
-    const v = horasNuevas[c];
-    if (!Number.isFinite(v)) {
-      errs.push(`Horas ${c} no numéricas.`);
-      continue;
-    }
-    if (v < 0) errs.push(`Las horas ${c} no pueden ser negativas.`);
-    if (!esMultiploDeMediaHora(v)) errs.push(`Las horas ${c} deben ser múltiplos de 0,5.`);
-  }
+  if (exigirComentario && !t) errs.push("El comentario es obligatorio.");
 
   const lnBy = Object.fromEntries(lineas.map((x) => [x.categoria, x])) as Record<
     AsignacionHoraCategoria,
@@ -734,23 +1063,56 @@ export function validarRedistribucionHoras(
 
   for (const c of CATEGORIAS_REDIST) {
     const v = horasNuevas[c];
+    if (!Number.isFinite(v)) {
+      errs.push(`Horas ${c} no numéricas.`);
+      continue;
+    }
+    if (v < -1e-9) errs.push(`Las horas ${c} no pueden ser negativas.`);
+    if (exigir05 && !esMultiploDeMediaHora(v)) {
+      errs.push(`Las horas ${c} deben ser múltiplos de 0,5 (modo automático).`);
+    }
     const ln = lnBy[c];
-    if (!Number.isFinite(v)) continue;
-    if (v + 1e-6 < ln.minHorasPermitidas) {
+    if (v + 1e-6 < ln.gastoRealRegistroHora) {
+      const mejoraDeficitParcial =
+        ln.deficitHoras > 1e-9 && v + 1e-6 >= horasActuales[c];
+      if (!mejoraDeficitParcial) {
+        errs.push(mensajePresupuestoBajoGastoReal(c, v, ln));
+      }
+    } else if (
+      v + 1e-6 < ln.minHorasPermitidas &&
+      ln.minHorasPermitidas > ln.gastoRealRegistroHora + 1e-6 &&
+      v > ln.gastoRealRegistroHora + 1e-6
+    ) {
       errs.push(
-        `${c}: el presupuesto no puede quedar por debajo de consumo histórico cerrado más el máximo entre comprometido activo y gasto real activo (mínimo ${ln.minHorasPermitidas.toFixed(1)} h).`,
+        `${c}: el presupuesto (${v.toFixed(1)} h) no alcanza el mínimo técnico de guardado (${ln.minHorasPermitidas.toFixed(1)} h). Revise el detalle legacy de asignaciones si aplica.`,
       );
     }
   }
 
-  const du = calcularUfEntregablePorCategoria(horasNuevas, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
+  const du =
+    calcularUfEntregablePorCategoria(horasNuevas, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
   if (Math.abs(du) > UF_REDISTRIBUCION_TOLERANCIA) {
     errs.push(
-      `La diferencia de UF (${du.toFixed(4)}) supera la tolerancia permitida (±${UF_REDISTRIBUCION_TOLERANCIA} UF). Ajuste horas en pasos de 0,5 h.`,
+      `La diferencia de UF (${du.toFixed(4)}) supera la tolerancia (±${UF_REDISTRIBUCION_TOLERANCIA} UF). Ajuste las horas finales por categoría.`,
     );
   }
 
   return errs;
+}
+
+export function puedeGuardarRedistribucionHoras(
+  horasActuales: HorasPorCategoria,
+  horasNuevas: HorasPorCategoria,
+  lineas: LineaRedistribucionCategoria[],
+  tarifas: TarifasPorCategoria,
+  comentario: string,
+): boolean {
+  return (
+    validarRedistribucionHoras(horasActuales, horasNuevas, lineas, tarifas, comentario, {
+      exigirMultiploMediaHora: false,
+      exigirComentario: true,
+    }).length === 0
+  );
 }
 
 export type MovimientoHistorialRedistribucion = {

@@ -177,7 +177,7 @@ export default function AsignacionesEntregableConsultaModal({ open, entregable, 
           <Button type="button" variant="outline" size="sm" className="rounded-r8" onClick={onClose}>
             Cerrar
           </Button>
-          {puedeIrFormularios ? (
+          {false && puedeIrFormularios ? (
             <Button
               type="button"
               variant="outline"

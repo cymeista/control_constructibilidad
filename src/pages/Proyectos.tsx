@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, X, Clock, FileEdit, Users, StickyNote, LayoutList } from "lucide-react";
+import { ChevronDown, X, Clock, FileEdit, StickyNote, LayoutList } from "lucide-react";
 import { useNavigate } from "react-router";
 import SectionHeader from "@/components/SectionHeader";
 import FilterBar from "@/components/FilterBar";
@@ -12,10 +12,10 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
-import AsignacionesEntregableConsultaModal from "@/components/AsignacionesEntregableConsultaModal";
+import EquipoEntregableSection from "@/components/EquipoEntregableSection";
 import { useAppData, type Profesional, type PmInterno } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
-import { canViewRouteForSession, canEditNotas, canAsignar } from "@/security/permissions";
+import { canViewRouteForSession, canEditNotas, canGestionarEquipoEntregable } from "@/security/permissions";
 import {
   TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   agregarTotalesKpiSinL2,
@@ -137,8 +137,8 @@ export default function Proyectos() {
   const { role } = useAuth();
   const puedeVerHoras = canViewRouteForSession(role, "/horas");
   const puedeVerFormularios = canViewRouteForSession(role, "/formularios");
-  const puedeAsignar = role ? canAsignar(role) : false;
   const puedeEditarNotas = role ? canEditNotas(role) : false;
+  const puedeGestionarEquipo = role ? canGestionarEquipoEntregable(role) : false;
   const {
     clientes,
     proyectos,
@@ -163,7 +163,6 @@ export default function Proyectos() {
   const [openProyectos, setOpenProyectos] = useState<Set<string>>(new Set());
   const [drawerRow, setDrawerRow] = useState<EntregableVistaAnalisis | null>(null);
   const [notaEnt, setNotaEnt] = useState<EntregableVistaAnalisis | null>(null);
-  const [asigModalRow, setAsigModalRow] = useState<EntregableVistaAnalisis | null>(null);
 
   const pmMap = useMemo(() => new Map(pm_internos.map((p: PmInterno) => [p.id, p])), [pm_internos]);
   const profMap = useMemo(() => new Map(profesionales.map((p: Profesional) => [p.id, p])), [profesionales]);
@@ -314,13 +313,9 @@ export default function Proyectos() {
     [updateEntregable, puedeEditarNotas],
   );
 
-  const goAsignacionesFiltrado = useCallback(
-    (ctx: { clienteId: string; proyectoId: string; entregableId: string }) => {
-      navigate(
-        `/formularios?entity=asignaciones_horas&cliente_id=${encodeURIComponent(
-          ctx.clienteId,
-        )}&proyecto_id=${encodeURIComponent(ctx.proyectoId)}&entregable_id=${encodeURIComponent(ctx.entregableId)}`,
-      );
+  const goGestionHorasEntregable = useCallback(
+    (entregableId: string) => {
+      navigate(`/horas?entregable_id=${encodeURIComponent(entregableId)}`);
     },
     [navigate],
   );
@@ -699,16 +694,6 @@ export default function Proyectos() {
                                                     <Clock size={14} /> Horas
                                                   </Button>
                                                 ) : null}
-                                                {puedeAsignar ? (
-                                                  <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    className="min-h-[44px] gap-1 px-3 text-[12px]"
-                                                    onClick={() => setAsigModalRow(row)}
-                                                  >
-                                                    <Users size={14} /> Asignar
-                                                  </Button>
-                                                ) : null}
                                                 {puedeEditarNotas ? (
                                                   <Button
                                                     type="button"
@@ -862,18 +847,6 @@ export default function Proyectos() {
                                                         onClick={() => navigate("/horas")}
                                                       >
                                                         <Clock size={12} />
-                                                      </Button>
-                                                    ) : null}
-                                                    {puedeAsignar ? (
-                                                      <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-7 px-1.5 text-[9px]"
-                                                        title="Asignaciones"
-                                                        onClick={() => setAsigModalRow(row)}
-                                                      >
-                                                        <Users size={12} />
                                                       </Button>
                                                     ) : null}
                                                     {puedeEditarNotas ? (
@@ -1063,47 +1036,7 @@ export default function Proyectos() {
                   ) : null}
                 </div>
 
-                <div className="mt-4">
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-t400">
-                    <Users size={14} /> Personas
-                  </p>
-                  <div className="mt-2 overflow-x-auto rounded-r10 border border-bdr">
-                    <table className="w-full min-w-[400px] border-collapse text-[11px]">
-                      <thead>
-                        <tr className="border-b border-bdr bg-slate-50 text-[9px] font-semibold uppercase text-t500">
-                          <th className="px-2 py-1.5 text-left">Profesional</th>
-                          <th className="px-2 py-1.5 text-left">Rol</th>
-                          <th className="px-2 py-1.5 text-left">Cat.</th>
-                          <th className="px-2 py-1.5 text-right">Hrs trab.</th>
-                          <th className="px-2 py-1.5 text-right">Hrs asign. (act./cerr.)</th>
-                          <th className="px-2 py-1.5 text-left">Obs.</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {drawerRow.participantes.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="px-2 py-3 text-center text-t500">
-                              Sin participantes registrados.
-                            </td>
-                          </tr>
-                        ) : (
-                          drawerRow.participantes.map((p) => (
-                            <tr key={p.profesional.id} className="border-b border-bdr/60">
-                              <td className="px-2 py-1.5 font-medium text-t800">{p.profesional.nombre_completo}</td>
-                              <td className="px-2 py-1.5 text-t600">{p.rol}</td>
-                              <td className="px-2 py-1.5 text-t600">{p.categoria}</td>
-                              <td className="px-2 py-1.5 text-right tabular-nums text-t800">{fmtH(p.horasTrabajadas)}</td>
-                              <td className="px-2 py-1.5 text-right tabular-nums text-t700">
-                                {fmtH(p.horasAsignadasActivas)} / {fmtH(p.horasAsignadasCerradas)}
-                              </td>
-                              <td className="px-2 py-1.5 text-t600">{p.observacion || "—"}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                <EquipoEntregableSection entregable={drawerRow.entregable} puedeEditar={puedeGestionarEquipo} />
 
                 <div className="mt-4">
                   <p className="text-[10px] font-semibold uppercase text-t400">Historial redistribuciones</p>
@@ -1134,20 +1067,9 @@ export default function Proyectos() {
                       variant="outline"
                       size="sm"
                       className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => navigate("/horas")}
+                      onClick={() => goGestionHorasEntregable(drawerRow.entregable.id)}
                     >
                       <Clock size={14} /> Gestión de Horas
-                    </Button>
-                  ) : null}
-                  {puedeAsignar ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => setAsigModalRow(drawerRow)}
-                    >
-                      <Users size={14} /> Asignaciones
                     </Button>
                   ) : null}
                   {puedeEditarNotas ? (
@@ -1185,14 +1107,6 @@ export default function Proyectos() {
           </>
         ) : null}
       </AnimatePresence>
-
-      <AsignacionesEntregableConsultaModal
-        open={asigModalRow != null}
-        entregable={asigModalRow?.entregable ?? null}
-        proyecto={asigModalRow?.proyecto ?? null}
-        onClose={() => setAsigModalRow(null)}
-        onGoAsignaciones={goAsignacionesFiltrado}
-      />
 
       <EntregableNotaSeguimientoModal
         open={notaEnt != null}

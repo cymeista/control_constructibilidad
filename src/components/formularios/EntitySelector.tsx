@@ -38,6 +38,9 @@ const entities: EntityConfig[] = [
   },
 ];
 
+/** Legacy ADMIN: accesible por URL `?entity=asignaciones_horas`, no en selector operativo. */
+const entitiesVisible = entities.filter((e) => e.key !== "asignaciones_horas");
+
 interface EntitySelectorProps {
   active: EntityType;
   counts: Record<EntityType, number>;
@@ -46,6 +49,7 @@ interface EntitySelectorProps {
 
 export default function EntitySelector({ active, counts, onSelect }: EntitySelectorProps) {
   const activeEntity = entities.find((e) => e.key === active);
+  const legacyAsignacionesActiva = active === "asignaciones_horas";
 
   return (
     <>
@@ -60,11 +64,16 @@ export default function EntitySelector({ active, counts, onSelect }: EntitySelec
           onChange={(e) => onSelect(e.target.value as EntityType)}
           className="w-full rounded-r8 border border-bdr bg-white px-3 py-3 text-[14px] font-medium text-t900 shadow-sh1 outline-none transition-all focus:border-copper focus:shadow-[0_0_0_3px_rgba(196,93,44,0.15)]"
         >
-          {entities.map((entity) => (
+          {entitiesVisible.map((entity) => (
             <option key={entity.key} value={entity.key}>
               {entity.label} ({counts[entity.key] ?? 0})
             </option>
           ))}
+          {legacyAsignacionesActiva ? (
+            <option value="asignaciones_horas">
+              Asignaciones (legacy) ({counts.asignaciones_horas ?? 0})
+            </option>
+          ) : null}
         </select>
         {activeEntity ? (
           <p className="mt-1.5 text-[11px] leading-snug text-t500">{activeEntity.description}</p>
@@ -73,7 +82,7 @@ export default function EntitySelector({ active, counts, onSelect }: EntitySelec
 
       {/* Escritorio / tablet: grid de tarjetas */}
       <div className="mb-[26px] hidden min-w-0 grid-cols-2 gap-[14px] md:grid lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-9">
-        {entities.map((entity) => {
+        {entitiesVisible.map((entity) => {
           const isActive = active === entity.key;
           const Icon = entity.icon;
           const count = counts[entity.key] ?? 0;

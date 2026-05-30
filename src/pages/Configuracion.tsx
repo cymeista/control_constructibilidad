@@ -30,9 +30,12 @@ import {
   Target,
   Bell,
   UserCog,
+  UsersRound,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useAuth } from "@/security/AuthContext";
+import PreviewMigracionEquipoEntregablePanel from "@/components/PreviewMigracionEquipoEntregablePanel";
 
 /* ─────────── Settings Hook ─────────── */
 
@@ -73,7 +76,7 @@ function useSettings() {
 
 /* ─────────── Backup JSON (AppData completo) ─────────── */
 
-const BACKUP_VERSION = 2;
+const BACKUP_VERSION = 3;
 
 /** Colecciones persistidas en `valtica_data_v1` / AppData. */
 const APP_DATA_COLLECTION_KEYS = [
@@ -83,6 +86,7 @@ const APP_DATA_COLLECTION_KEYS = [
   "proyectos",
   "entregables",
   "asignaciones_horas",
+  "equipo_entregable",
   "registro_horas",
   "pipeline",
   "carga_mensual",
@@ -101,6 +105,7 @@ const BACKUP_COLLECTION_LABELS: Record<AppDataCollectionKey, string> = {
   proyectos: "Proyectos",
   entregables: "Entregables",
   asignaciones_horas: "Asignaciones de horas",
+  equipo_entregable: "Equipo entregable",
   registro_horas: "Registro de Horas",
   pipeline: "Pipeline",
   carga_mensual: "Carga Mensual",
@@ -347,7 +352,9 @@ function SettingsCard({
 
 export default function Configuracion() {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const data = useAppData();
+  const { aplicarMigracionEquipoEntregable } = data;
   const { settings, update } = useSettings();
   const { toasts, show } = useToast();
 
@@ -368,6 +375,7 @@ export default function Configuracion() {
     proyectos: data.proyectos.length,
     entregables: data.entregables.length,
     asignaciones_horas: data.asignaciones_horas.length,
+    equipo_entregable: data.equipo_entregable.length,
     registro_horas: data.registro_horas.length,
     pipeline: data.pipeline.length,
     carga_mensual: data.carga_mensual.length,
@@ -386,7 +394,7 @@ export default function Configuracion() {
       ...collections,
     };
     downloadBlob(JSON.stringify(payload, null, 2), "valtica_backup.json", "application/json");
-    show("Exportación JSON completada (13 colecciones)", "success");
+    show("Exportación JSON completada (14 colecciones)", "success");
   }, [data, show]);
 
   const exportCSV = useCallback(
@@ -481,6 +489,7 @@ export default function Configuracion() {
     { key: "proyectos", label: BACKUP_COLLECTION_LABELS.proyectos, icon: FolderOpen },
     { key: "entregables", label: BACKUP_COLLECTION_LABELS.entregables, icon: FileText },
     { key: "asignaciones_horas", label: BACKUP_COLLECTION_LABELS.asignaciones_horas, icon: ClipboardList },
+    { key: "equipo_entregable", label: BACKUP_COLLECTION_LABELS.equipo_entregable, icon: UsersRound },
     { key: "registro_horas", label: BACKUP_COLLECTION_LABELS.registro_horas, icon: Clock },
     { key: "pipeline", label: BACKUP_COLLECTION_LABELS.pipeline, icon: TrendingUp },
     { key: "carga_mensual", label: BACKUP_COLLECTION_LABELS.carga_mensual, icon: CalendarDays },
@@ -829,6 +838,23 @@ export default function Configuracion() {
           </a>
         </SettingsCard>
       </div>
+
+      {role === "ADMIN" ? (
+        <SettingsCard title="Previsualización migración equipo entregable" icon={UsersRound}>
+          <PreviewMigracionEquipoEntregablePanel
+            input={{
+              clientes: data.clientes,
+              proyectos: data.proyectos,
+              entregables: data.entregables,
+              profesionales: data.profesionales,
+              asignaciones_horas: data.asignaciones_horas,
+              registro_horas: data.registro_horas,
+            }}
+            equipoActual={data.equipo_entregable}
+            onAplicarMigracion={aplicarMigracionEquipoEntregable}
+          />
+        </SettingsCard>
+      ) : null}
 
       {/* Confirmation Dialog */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

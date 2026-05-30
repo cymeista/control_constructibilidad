@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ClipboardList, Target } from "lucide-react";
+import { ChevronDown, ChevronRight, ClipboardList, Target } from "lucide-react";
 import SectionHeader from "@/components/SectionHeader";
 import KpiCard, { kpiCardsGridClassName5 } from "@/components/KpiCard";
 import { useIsBelowMd } from "@/hooks/useIsBelowMd";
@@ -12,9 +12,13 @@ import type {
   Entregable,
   Proyecto,
   RegistroHora,
-  AsignacionHora,
   EvaluacionDesempenoProfesional,
 } from "@/context/AppDataContext";
+import {
+  listarParticipacionProfesionalEquipo,
+  type ParticipacionBloqueProyecto,
+  type ParticipacionEntregableFila,
+} from "@/profesionales/profesionalParticipacionEquipoReadModel";
 
 /* ─── helpers ─── */
 
@@ -37,11 +41,6 @@ function fechaKey(iso: string): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-/** Estados de entregable interpretados como completado (variantes ya usadas en el modelo). */
-function entregableEstaCompletado(estado: string): boolean {
-  return String(estado).trim().toUpperCase() === "COMPLETADO";
-}
-
 function nombreProyectoSafe(p: Proyecto | undefined): string {
   if (!p) return "Sin proyecto";
   const n = (p.nombre ?? "").trim();
@@ -58,30 +57,140 @@ function nombreEntregableSafe(e: Entregable | undefined): string {
   return e.id ? `Entregable ${e.id}` : "Sin nombre";
 }
 
-function horasGastadasProfEntregable(regs: RegistroHora[], profId: string, entId: string): number {
-  return regs
-    .filter(
-      (r) =>
-        r.profesional_id === profId &&
-        r.entregable_id === entId &&
-        r.tipo_hora === "DIRECTA" &&
-        Number(r.horas) > 0,
-    )
-    .reduce((s, r) => s + Number(r.horas), 0);
+type ParticipacionGrupoCliente = {
+  clienteKey: string;
+  clienteNombre: string;
+  proyectos: {
+    proyectoId: string;
+    proyecto: Proyecto | undefined;
+    filas: ParticipacionEntregableFila[];
+  }[];
+};
+
+/** Agrupación solo visual: Cliente → Proyecto → Entregables (sin alterar datos del read model). */
+function agruparParticipacionPorCliente(bloques: ParticipacionBloqueProyecto[]): ParticipacionGrupoCliente[] {
+  const byCliente = new Map<string, ParticipacionGrupoCliente>();
+  for (const bloque of bloques) {
+    const clienteNombre = (bloque.clienteNombre ?? "—").trim() || "—";
+    const clienteKey = clienteNombre;
+    if (!byCliente.has(clienteKey)) {
+      byCliente.set(clienteKey, { clienteKey, clienteNombre, proyectos: [] });
+    }
+    byCliente.get(clienteKey)!.proyectos.push({
+      proyectoId: bloque.proyectoId,
+      proyecto: bloque.proyecto,
+      filas: bloque.filas,
+    });
+  }
+  return Array.from(byCliente.values())
+    .map((g) => ({
+      ...g,
+      proyectos: g.proyectos.sort((a, b) =>
+        nombreProyectoSafe(a.proyecto).localeCompare(nombreProyectoSafe(b.proyecto), "es"),
+      ),
+    }))
+    .sort((a, b) => a.clienteNombre.localeCompare(b.clienteNombre, "es"));
 }
 
-/**
- * En bloques "Completados", el estado ya indica cierre; si `avance_real` quedó desactualizado
- * en datos (p. ej. 1%), se muestra 100% y el valor numérico solo como referencia.
- */
-function AvanceRealCompletado({ ent }: { ent: Entregable }) {
-  const raw = Number(ent.avance_real);
-  const tiene = Number.isFinite(raw);
-  const desfasado = tiene && raw < 99.5;
+function ParticipacionEntregableDetallePanel({ fila }: { fila: ParticipacionEntregableFila }) {
   return (
-    <span className="mt-0.5 block text-[11px] text-t500">
-      Avance real: {desfasado || !tiene ? "100%" : `${raw}%`}
-    </span>
+    <div className="mt-1.5 space-y-1 rounded-r6 border border-bdr bg-[#F7F8FA] px-3 py-2 text-[11px] text-t700">
+      <p>
+        <span className="text-t500">Rol:</span> {fila.rolLabel}
+      </p>
+      <p>
+        <span className="text-t500">Avance real:</span> {fila.avancePct}%
+      </p>
+      {fila.sinGastoReal ? (
+        <p className="font-mono text-t600">Sin gasto real</p>
+      ) : (
+        <>
+          <p className="font-mono text-t600">
+            <span className="text-t500 font-sans">Gasto real profesional:</span> {fmtHoras1(fila.horasProf)} h
+          </p>
+          <p className="font-mono text-t600">
+            <span className="text-t500 font-sans">Gasto real total entregable (P4+P3+P2):</span>{" "}
+            {fmtHoras1(fila.horasTotalesEnt)} h
+          </p>
+          <p className="font-mono text-t600">
+            <span className="text-t500 font-sans">Colaboración en entregable:</span> {fila.pctColaboracion}%
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ParticipacionEntregableFilaColapsable({
+  fila,
+  expanded,
+  onToggle,
+}: {
+  fila: ParticipacionEntregableFila;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li className="text-t700">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-r6 py-1 text-left transition-colors hover:bg-[#F7F8FA]"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <ChevronRight
+          className={`h-3.5 w-3.5 shrink-0 text-t400 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
+          aria-hidden
+        />
+        <span className="min-w-0 truncate font-medium text-t800">{nombreEntregableSafe(fila.ent)}</span>
+      </button>
+      {expanded ? <ParticipacionEntregableDetallePanel fila={fila} /> : null}
+    </li>
+  );
+}
+
+function ParticipacionBloquesLista({ bloques }: { bloques: ParticipacionBloqueProyecto[] }) {
+  const grupos = useMemo(() => agruparParticipacionPorCliente(bloques), [bloques]);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+
+  const toggleEntregable = useCallback((entregableId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(entregableId)) next.delete(entregableId);
+      else next.add(entregableId);
+      return next;
+    });
+  }, []);
+
+  if (grupos.length === 0) return null;
+
+  return (
+    <div className="flex max-h-[min(50vh,420px)] flex-col gap-5 overflow-y-auto text-[12px] pr-0.5">
+      {grupos.map((grupo) => (
+        <section key={grupo.clienteKey} className="min-w-0">
+          <p className="text-[13px] font-semibold leading-snug text-t900">{grupo.clienteNombre}</p>
+          <div className="mt-2 flex flex-col gap-3 border-l-2 border-[#E0E7FF] pl-3 sm:pl-4">
+            {grupo.proyectos.map((proy) => (
+              <div key={proy.proyectoId} className="min-w-0">
+                <p className="text-[12px] font-medium leading-snug text-t800">
+                  {nombreProyectoSafe(proy.proyecto)}
+                </p>
+                <ul className="mt-1.5 flex flex-col gap-0.5 border-l border-bdr pl-3 sm:pl-4">
+                  {proy.filas.map((fila) => (
+                    <ParticipacionEntregableFilaColapsable
+                      key={fila.entregable_id}
+                      fila={fila}
+                      expanded={expandedIds.has(fila.entregable_id)}
+                      onToggle={() => toggleEntregable(fila.entregable_id)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -397,11 +506,12 @@ export default function ProfesionalesPage() {
   const isBelowMd = useIsBelowMd();
   const puedeEditarEval = role ? canEditarEvaluacion(role) : false;
   const {
+    clientes,
     profesionales,
     proyectos,
     entregables,
     registro_horas,
-    asignaciones_horas,
+    equipo_entregable,
     evaluaciones_desempeno_profesional,
     upsertEvaluacionDesempenoProfesional,
   } = useAppData();
@@ -515,124 +625,36 @@ export default function ProfesionalesPage() {
     };
   }, [registrosProf, selected]);
 
+  const participacionInput = useMemo(
+    () =>
+      selected
+        ? {
+            profesionalId: selected.id,
+            equipo_entregable,
+            entregables,
+            proyectos,
+            clientes,
+            registro_horas,
+            profesionales,
+          }
+        : null,
+    [selected, equipo_entregable, entregables, proyectos, clientes, registro_horas, profesionales],
+  );
+
   const participacionPorProyecto = useMemo(() => {
-    if (!selected) return [];
-    const activas = asignaciones_horas.filter(
-      (a) => a.profesional_id === selected.id && a.estado === "ACTIVA",
-    );
-    const byProj = new Map<
-      string,
-      Map<
-        string,
-        {
-          entregable_id: string;
-          roles: Set<string>;
-          categorias: Set<string>;
-          horas_comprometidas: number;
-        }
-      >
-    >();
-    for (const a of activas) {
-      const ent = entregablesMap.get(a.entregable_id);
-      const pid = (ent?.proyecto_id ?? a.proyecto_id ?? "").trim();
-      if (!pid) continue;
-      if (!byProj.has(pid)) byProj.set(pid, new Map());
-      const inner = byProj.get(pid)!;
-      const prev = inner.get(a.entregable_id);
-      const rolLabel = a.rol_en_entregable === "LIDER" ? "Líder" : "Apoyo";
-      if (prev) {
-        prev.roles.add(rolLabel);
-        prev.categorias.add(a.categoria);
-        prev.horas_comprometidas += Number(a.horas_comprometidas) || 0;
-      } else {
-        inner.set(a.entregable_id, {
-          entregable_id: a.entregable_id,
-          roles: new Set([rolLabel]),
-          categorias: new Set([a.categoria]),
-          horas_comprometidas: Number(a.horas_comprometidas) || 0,
-        });
-      }
-    }
-    return Array.from(byProj.entries())
-      .map(([proyectoId, entMap]) => ({
-        proyectoId,
-        proyecto: proyectosMap.get(proyectoId),
-        filas: Array.from(entMap.values()),
-      }))
-      .sort((a, b) =>
-        nombreProyectoSafe(a.proyecto).localeCompare(nombreProyectoSafe(b.proyecto), "es"),
-      );
-  }, [asignaciones_horas, selected, entregablesMap, proyectosMap]);
+    if (!participacionInput) return [];
+    return listarParticipacionProfesionalEquipo(participacionInput, "participacion_actual");
+  }, [participacionInput]);
 
   const completadosLider = useMemo(() => {
-    if (!selected) return [];
-    const seen = new Set<string>();
-    const rows: { proyecto: Proyecto | undefined; ent: Entregable }[] = [];
-    for (const a of asignaciones_horas) {
-      if (a.profesional_id !== selected.id || a.rol_en_entregable !== "LIDER") continue;
-      const ent = entregablesMap.get(a.entregable_id);
-      if (!ent || !entregableEstaCompletado(ent.estado)) continue;
-      if (seen.has(ent.id)) continue;
-      seen.add(ent.id);
-      rows.push({ proyecto: proyectosMap.get(ent.proyecto_id), ent });
-    }
-    const byProj = new Map<string, { proyecto: Proyecto | undefined; items: Entregable[] }>();
-    for (const { proyecto, ent } of rows) {
-      const pid = ent.proyecto_id;
-      if (!byProj.has(pid)) byProj.set(pid, { proyecto, items: [] });
-      byProj.get(pid)!.items.push(ent);
-    }
-    return Array.from(byProj.entries())
-      .map(([proyectoId, v]) => ({
-        proyectoId,
-        proyecto: v.proyecto,
-        items: v.items.sort((a, b) =>
-          nombreEntregableSafe(a).localeCompare(nombreEntregableSafe(b), "es"),
-        ),
-      }))
-      .sort((a, b) =>
-        nombreProyectoSafe(a.proyecto).localeCompare(nombreProyectoSafe(b.proyecto), "es"),
-      );
-  }, [asignaciones_horas, selected, entregablesMap, proyectosMap]);
+    if (!participacionInput) return [];
+    return listarParticipacionProfesionalEquipo(participacionInput, "completados_lider");
+  }, [participacionInput]);
 
   const completadosApoyo = useMemo(() => {
-    if (!selected) return [];
-    const seen = new Set<string>();
-    const rows: { proyecto: Proyecto | undefined; ent: Entregable; rol: AsignacionHora["rol_en_entregable"] }[] =
-      [];
-    for (const a of asignaciones_horas) {
-      if (a.profesional_id !== selected.id || a.rol_en_entregable !== "APOYO") continue;
-      const ent = entregablesMap.get(a.entregable_id);
-      if (!ent || !entregableEstaCompletado(ent.estado)) continue;
-      if (seen.has(ent.id)) continue;
-      seen.add(ent.id);
-      rows.push({
-        proyecto: proyectosMap.get(ent.proyecto_id),
-        ent,
-        rol: a.rol_en_entregable,
-      });
-    }
-    const byProj = new Map<
-      string,
-      { proyecto: Proyecto | undefined; items: { ent: Entregable; rol: AsignacionHora["rol_en_entregable"] }[] }
-    >();
-    for (const { proyecto, ent, rol } of rows) {
-      const pid = ent.proyecto_id;
-      if (!byProj.has(pid)) byProj.set(pid, { proyecto, items: [] });
-      byProj.get(pid)!.items.push({ ent, rol });
-    }
-    return Array.from(byProj.entries())
-      .map(([proyectoId, v]) => ({
-        proyectoId,
-        proyecto: v.proyecto,
-        items: v.items.sort((x, y) =>
-          nombreEntregableSafe(x.ent).localeCompare(nombreEntregableSafe(y.ent), "es"),
-        ),
-      }))
-      .sort((a, b) =>
-        nombreProyectoSafe(a.proyecto).localeCompare(nombreProyectoSafe(b.proyecto), "es"),
-      );
-  }, [asignaciones_horas, selected, entregablesMap, proyectosMap]);
+    if (!participacionInput) return [];
+    return listarParticipacionProfesionalEquipo(participacionInput, "completados_apoyo");
+  }, [participacionInput]);
 
   const evalGuardada = useMemo(
     () =>
@@ -985,45 +1007,10 @@ export default function ProfesionalesPage() {
                     </div>
                     {participacionPorProyecto.length === 0 ? (
                       <p className="py-6 text-center text-[12px] italic text-t400">
-                        Sin asignaciones activas
+                        No hay equipo declarado para este profesional en entregables en ejecución.
                       </p>
                     ) : (
-                      <div className="flex flex-col gap-4 overflow-y-auto text-[12px]">
-                        {participacionPorProyecto.map((bloque) => (
-                          <div key={bloque.proyectoId}>
-                            <p className="font-semibold text-t800">{nombreProyectoSafe(bloque.proyecto)}</p>
-                            <ul className="mt-2 flex flex-col gap-2 border-l border-bdr pl-3">
-                              {bloque.filas.map((f) => {
-                                const ent = entregablesMap.get(f.entregable_id);
-                                const gastadas = horasGastadasProfEntregable(
-                                  registro_horas,
-                                  selected.id,
-                                  f.entregable_id,
-                                );
-                                const rolTxt = [...f.roles].join(" · ");
-                                const catTxt = [...f.categorias].join(", ");
-                                return (
-                                  <li key={f.entregable_id} className="text-t700">
-                                    <span className="font-medium">{nombreEntregableSafe(ent)}</span>
-                                    <span className="mt-0.5 block text-[11px] text-t500">
-                                      Rol: {rolTxt}
-                                      {catTxt ? ` · Categoría: ${catTxt}` : ""}
-                                    </span>
-                                    <span className="mt-0.5 block font-mono text-[11px] text-t600">
-                                      <span className="block sm:inline">
-                                        Comprometidas: {fmtHoras1(f.horas_comprometidas)} h
-                                      </span>
-                                      <span className="block sm:inline sm:before:content-['_·_']">
-                                        Gastadas: {fmtHoras1(gastadas)} h
-                                      </span>
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
+                      <ParticipacionBloquesLista bloques={participacionPorProyecto} />
                     )}
                   </div>
 
@@ -1036,30 +1023,10 @@ export default function ProfesionalesPage() {
                     </div>
                     {completadosLider.length === 0 ? (
                       <p className="py-6 text-center text-[12px] italic text-t400">
-                        Sin entregables completados como líder.
+                        No hay equipo declarado como líder en entregables completados (avance real 100%).
                       </p>
                     ) : (
-                      <div className="flex flex-col gap-4 overflow-y-auto text-[12px]">
-                        {completadosLider.map((bloque) => (
-                          <div key={bloque.proyectoId}>
-                            <p className="font-semibold text-t800">{nombreProyectoSafe(bloque.proyecto)}</p>
-                            <ul className="mt-2 flex flex-col gap-2 border-l border-bdr pl-3">
-                              {bloque.items.map((ent) => (
-                                <li key={ent.id} className="text-t700">
-                                  <span className="font-medium">{nombreEntregableSafe(ent)}</span>
-                                  <span className="mt-0.5 block text-[11px] text-t500">
-                                    Fecha término:{" "}
-                                    {ent.fecha_termino
-                                      ? fmtDateLong(ent.fecha_termino)
-                                      : "—"}
-                                  </span>
-                                  <AvanceRealCompletado ent={ent} />
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
+                      <ParticipacionBloquesLista bloques={completadosLider} />
                     )}
                   </div>
 
@@ -1072,33 +1039,10 @@ export default function ProfesionalesPage() {
                     </div>
                     {completadosApoyo.length === 0 ? (
                       <p className="py-6 text-center text-[12px] italic text-t400">
-                        Sin entregables completados como apoyo.
+                        No hay equipo declarado como apoyo en entregables completados (avance real 100%).
                       </p>
                     ) : (
-                      <div className="flex flex-col gap-4 overflow-y-auto text-[12px]">
-                        {completadosApoyo.map((bloque) => (
-                          <div key={bloque.proyectoId}>
-                            <p className="font-semibold text-t800">{nombreProyectoSafe(bloque.proyecto)}</p>
-                            <ul className="mt-2 flex flex-col gap-2 border-l border-bdr pl-3">
-                              {bloque.items.map(({ ent, rol }) => (
-                                <li key={ent.id} className="text-t700">
-                                  <span className="font-medium">{nombreEntregableSafe(ent)}</span>
-                                  <span className="mt-0.5 block text-[11px] text-t500">
-                                    Rol: {rol === "LIDER" ? "Líder" : "Apoyo"}
-                                  </span>
-                                  <span className="mt-0.5 block text-[11px] text-t500">
-                                    Fecha término:{" "}
-                                    {ent.fecha_termino
-                                      ? fmtDateLong(ent.fecha_termino)
-                                      : "—"}
-                                  </span>
-                                  <AvanceRealCompletado ent={ent} />
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
+                      <ParticipacionBloquesLista bloques={completadosApoyo} />
                     )}
                   </div>
                 </div>

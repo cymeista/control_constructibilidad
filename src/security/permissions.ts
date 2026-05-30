@@ -73,6 +73,11 @@ export function canAsignar(role: AppRole): boolean {
   return role === "ADMIN";
 }
 
+/** Alta/edición/baja de `equipo_entregable` desde Proyectos (no extiende permisos EDITOR en asignaciones). */
+export function canGestionarEquipoEntregable(role: AppRole): boolean {
+  return role === "ADMIN";
+}
+
 /** Crear asignación ACTIVA por encima del cupo disponible de categoría (confirmación explícita). */
 export function canCrearAsignacionSobrecupo(role: AppRole): boolean {
   return role === "ADMIN";

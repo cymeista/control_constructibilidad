@@ -14,6 +14,8 @@ type Props = {
   dense?: boolean;
   /** Control UI: oculta chips de estado (ej. Dashboard). */
   showBadges?: boolean;
+  /** Texto del botón principal (por defecto: Redistribuir horas). */
+  buttonLabel?: string;
   className?: string;
 };
 
@@ -21,7 +23,13 @@ type Props = {
  * Acceso único a `RedistribuirHorasEntregableModal` por entregable: siempre visible (no condicionado a alertas).
  * Badges opcionales: sobreconsumo vs presupuesto, historial de redistribución.
  */
-export function EntregableRedistribuirHorasTrigger({ ent, dense, showBadges = true, className }: Props) {
+export function EntregableRedistribuirHorasTrigger({
+  ent,
+  dense,
+  showBadges = true,
+  buttonLabel = "Redistribuir horas",
+  className,
+}: Props) {
   const { role } = useAuth();
   const permitido = role ? canRedistribuir(role) : false;
   const {
@@ -84,7 +92,7 @@ export function EntregableRedistribuirHorasTrigger({ ent, dense, showBadges = tr
             }
             onClick={() => setOpen(true)}
           >
-            Redistribuir horas
+            {buttonLabel}
           </Button>
         ) : null}
       </div>

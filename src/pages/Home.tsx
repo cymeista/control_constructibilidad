@@ -43,10 +43,9 @@ import { format } from "date-fns";
 import { ChevronDown, ChevronRight, StickyNote } from "lucide-react";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
-import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/security/AuthContext";
-import { canEditAvance, canEditNotas, canAsignar } from "@/security/permissions";
+import { canEditAvance, canEditNotas } from "@/security/permissions";
 
 ChartJS.register(
   CategoryScale,
@@ -251,10 +250,8 @@ function DashboardEntregableSeguimientoCard({
   completadoReciente,
   hp,
   avanceTeoricoVista,
-  puedeAsignar,
   puedeEditarNotas,
   onNota,
-  onAsignar,
 }: {
   e: Entregable;
   clienteNombre: string;
@@ -268,10 +265,8 @@ function DashboardEntregableSeguimientoCard({
   completadoReciente: boolean;
   hp: number;
   avanceTeoricoVista: number;
-  puedeAsignar: boolean;
   puedeEditarNotas: boolean;
   onNota: () => void;
-  onAsignar: () => void;
 }) {
   const codigo = codigoFaseEntregable(e);
   return (
@@ -339,11 +334,6 @@ function DashboardEntregableSeguimientoCard({
         <div className="w-full [&_button]:min-h-[40px] [&_button]:w-full">
           <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} className="w-full" />
         </div>
-        {puedeAsignar ? (
-          <Button type="button" variant="outline" className="min-h-[40px] flex-1 gap-1 text-[12px]" onClick={onAsignar}>
-            Asignar
-          </Button>
-        ) : null}
         {puedeEditarNotas ? (
           <Button type="button" variant="outline" className="min-h-[40px] gap-1 px-3 text-[12px]" onClick={onNota}>
             <StickyNote className="h-3.5 w-3.5" />
@@ -363,8 +353,6 @@ function DashboardProximoInicioCard({
   estadoVisual,
   status,
   hp,
-  puedeAsignar,
-  onAsignar,
 }: {
   e: Entregable;
   clienteNombre: string;
@@ -373,8 +361,6 @@ function DashboardProximoInicioCard({
   estadoVisual: Entregable["estado"];
   status: StatusPillVariant;
   hp: number;
-  puedeAsignar: boolean;
-  onAsignar: () => void;
 }) {
   return (
     <article className="rounded-r10 border border-bdr bg-white p-3 shadow-sm">
@@ -405,11 +391,6 @@ function DashboardProximoInicioCard({
         <div className="w-full [&_button]:min-h-[44px] [&_button]:w-full">
           <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} className="w-full" />
         </div>
-        {puedeAsignar ? (
-          <Button type="button" variant="outline" className="min-h-[44px] flex-1 gap-1 text-[12px]" onClick={onAsignar}>
-            Asignar
-          </Button>
-        ) : null}
       </div>
     </article>
   );
@@ -466,12 +447,10 @@ function entregablePasaFiltroEstadoSeguimiento(e: Entregable, filtro: EstadoSegu
 }
 
 export default function Home() {
-  const navigate = useNavigate();
   const data = useAppData();
   const { updateEntregable } = data;
   const { role } = useAuth();
   const puedeEditarNotas = role ? canEditNotas(role) : false;
-  const puedeAsignar = role ? canAsignar(role) : false;
   const [factor, setFactor] = useState(85);
   const [clienteFilter, setClienteFilter] = useState("");
   const [proyectoFilter, setProyectoFilter] = useState("");
@@ -1381,20 +1360,8 @@ export default function Home() {
                                       completadoReciente={completadoReciente}
                                       hp={hp}
                                       avanceTeoricoVista={avanceTeoricoVista}
-                                      puedeAsignar={puedeAsignar}
                                       puedeEditarNotas={puedeEditarNotas}
                                       onNota={() => setNotaSegEntregableId(e.id)}
-                                      onAsignar={() => {
-                                        const pr = data.proyectos.find((p) => p.id === e.proyecto_id);
-                                        const clienteId = pr?.cliente_id ?? "";
-                                        navigate(
-                                          `/formularios?entity=asignaciones_horas&cliente_id=${encodeURIComponent(
-                                            clienteId,
-                                          )}&proyecto_id=${encodeURIComponent(e.proyecto_id)}&entregable_id=${encodeURIComponent(
-                                            e.id,
-                                          )}`,
-                                        );
-                                      }}
                                     />
                                   );
                                 })}
@@ -1480,27 +1447,6 @@ export default function Home() {
                                           <td className="max-w-[240px] px-2 py-2 align-top">
                                             <div className="flex flex-wrap items-center gap-2">
                                               <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} />
-                                              {puedeAsignar ? (
-                                                <Button
-                                                  type="button"
-                                                  variant="outline"
-                                                  size="sm"
-                                                  className="h-7 rounded-r8 px-2 text-[10px] font-semibold"
-                                                  onClick={() => {
-                                                    const proyecto = data.proyectos.find((p) => p.id === e.proyecto_id);
-                                                    const clienteId = proyecto?.cliente_id ?? "";
-                                                    navigate(
-                                                      `/formularios?entity=asignaciones_horas&cliente_id=${encodeURIComponent(
-                                                        clienteId,
-                                                      )}&proyecto_id=${encodeURIComponent(e.proyecto_id)}&entregable_id=${encodeURIComponent(
-                                                        e.id,
-                                                      )}`,
-                                                    );
-                                                  }}
-                                                >
-                                                  Asignar
-                                                </Button>
-                                              ) : null}
                                             </div>
                                           </td>
                                           <td className="px-2 py-2">
@@ -1565,16 +1511,6 @@ export default function Home() {
                     estadoVisual={estadoVisual}
                     status={status}
                     hp={hp}
-                    puedeAsignar={puedeAsignar}
-                    onAsignar={() => {
-                      const pr = data.proyectos.find((p) => p.id === e.proyecto_id);
-                      const clienteId = pr?.cliente_id ?? "";
-                      navigate(
-                        `/formularios?entity=asignaciones_horas&cliente_id=${encodeURIComponent(
-                          clienteId,
-                        )}&proyecto_id=${encodeURIComponent(e.proyecto_id)}&entregable_id=${encodeURIComponent(e.id)}`,
-                      );
-                    }}
                   />
                 );
               })}
@@ -1621,27 +1557,6 @@ export default function Home() {
                         <td className="max-w-[240px] px-3 py-2 align-top">
                           <div className="flex flex-wrap items-center gap-2">
                             <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} />
-                            {puedeAsignar ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-7 rounded-r8 px-2 text-[10px] font-semibold"
-                                onClick={() => {
-                                  const proyecto = data.proyectos.find((p) => p.id === e.proyecto_id);
-                                  const clienteId = proyecto?.cliente_id ?? "";
-                                  navigate(
-                                    `/formularios?entity=asignaciones_horas&cliente_id=${encodeURIComponent(
-                                      clienteId,
-                                    )}&proyecto_id=${encodeURIComponent(e.proyecto_id)}&entregable_id=${encodeURIComponent(
-                                      e.id,
-                                    )}`,
-                                  );
-                                }}
-                              >
-                                Asignar
-                              </Button>
-                            ) : null}
                           </div>
                         </td>
                       </tr>

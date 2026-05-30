@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { loadAppData, saveAppData } from "@/persistence/dataRepository";
+import {
+  aplicarMigracionEquipoEntregableDesdePreview,
+  type ResumenAplicacionMigracionEquipo,
+} from "@/equipo/aplicarMigracionEquipoEntregable";
+import { computePreviewMigracionEquipoEntregable } from "@/equipo/previewMigracionEquipoEntregable";
+import { aplicarReglaUnicoLider } from "@/equipo/equipoEntregableRules";
 import { recomputarConsumoEnEntregables } from "@/entregables/registroHoraConsumo";
 import {
   hydrateMonedaProyectoFromPersisted,
@@ -227,6 +233,23 @@ export type AsignacionHoraCategoria = "L2" | "P4" | "P3" | "P2";
 export type AsignacionHoraEstado = "ACTIVA" | "CERRADA";
 export type AsignacionHoraRol = "LIDER" | "APOYO";
 
+/** Participación en entregable (equipo); separado de asignaciones_horas. */
+export type EquipoEntregableOrigen =
+  | "migracion_asignacion_activa"
+  | "migracion_asignacion_cerrada"
+  | "lider_id_entregable"
+  | "manual";
+
+export interface EquipoEntregable {
+  id: string;
+  entregable_id: string;
+  profesional_id: string;
+  rol_en_entregable: AsignacionHoraRol;
+  origen?: EquipoEntregableOrigen;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AsignacionHora {
   id: string;
   entregable_id: string;
@@ -376,6 +399,8 @@ interface AppData {
   entregables: Entregable[];
   /** Bloque 0 módulo asignaciones: histórico y vigencias; sin lógica de negocio aún en UI. */
   asignaciones_horas: AsignacionHora[];
+  /** Equipo del entregable (líder/apoyo); sin horas comprometidas ni vigencias. */
+  equipo_entregable: EquipoEntregable[];
   registro_horas: RegistroHora[];
   pipeline: Pipeline[];
   carga_mensual: CargaMensual[];
@@ -450,6 +475,21 @@ interface AppDataContextValue extends AppData {
     items: { id: string; horas_gastadas_imputadas_al_cierre: number }[],
   ) => { ok: true } | { ok: false; error: string };
   deleteAsignacionHora: (id: string) => void;
+  /**
+   * Migra equipo propuesto (asignaciones ACTIVAS/CERRADAS como rol + lider_id) a `equipo_entregable`.
+   * No modifica asignaciones_horas ni incluye sugeridos por gasto real.
+   */
+  aplicarMigracionEquipoEntregable: () => ResumenAplicacionMigracionEquipo;
+  agregarIntegranteEquipoEntregable: (input: {
+    entregable_id: string;
+    profesional_id: string;
+    rol_en_entregable: AsignacionHoraRol;
+  }) => { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string };
+  cambiarRolIntegranteEquipoEntregable: (
+    equipoId: string,
+    rol_en_entregable: AsignacionHoraRol,
+  ) => { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string };
+  quitarIntegranteEquipoEntregable: (equipoId: string) => void;
   addPipeline: (p: Omit<Pipeline, "id" | "created_at" | "updated_at">) => void;
   updatePipeline: (id: string, p: Partial<Pipeline>) => void;
   deletePipeline: (id: string) => void;
@@ -870,6 +910,50 @@ function normalizeEvaluacionesDesempenoProfesional(raw: unknown): EvaluacionDese
   return Array.from(byProf.values());
 }
 
+const EQUIPO_ENTREGABLE_ORIGENES: EquipoEntregableOrigen[] = [
+  "migracion_asignacion_activa",
+  "migracion_asignacion_cerrada",
+  "lider_id_entregable",
+  "manual",
+];
+
+function normalizeEquipoEntregableRow(row: EquipoEntregable): EquipoEntregable | null {
+  const entregable_id = String(row.entregable_id ?? "").trim();
+  const profesional_id = String(row.profesional_id ?? "").trim();
+  if (!entregable_id || !profesional_id) return null;
+  const rol_en_entregable: AsignacionHoraRol = row.rol_en_entregable === "LIDER" ? "LIDER" : "APOYO";
+  const origen =
+    row.origen && EQUIPO_ENTREGABLE_ORIGENES.includes(row.origen as EquipoEntregableOrigen)
+      ? (row.origen as EquipoEntregableOrigen)
+      : undefined;
+  const ts = now();
+  return {
+    ...row,
+    id: String(row.id ?? "").trim() || uid(),
+    entregable_id,
+    profesional_id,
+    rol_en_entregable,
+    origen,
+    created_at: String(row.created_at ?? "").trim() || ts,
+    updated_at: String(row.updated_at ?? "").trim() || ts,
+  };
+}
+
+function normalizeEquipoEntregableCarga(raw: unknown): EquipoEntregable[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EquipoEntregable[] = [];
+  const seen = new Set<string>();
+  for (const row of raw) {
+    const n = normalizeEquipoEntregableRow(row as EquipoEntregable);
+    if (!n) continue;
+    const key = `${n.entregable_id}\0${n.profesional_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
 /** Estructura persistible válida sin registros; único fallback cuando no hay `valtica_data_v1`. */
 function createEmptyAppData(): AppData {
   return {
@@ -879,6 +963,7 @@ function createEmptyAppData(): AppData {
     proyectos: [],
     entregables: [],
     asignaciones_horas: [],
+    equipo_entregable: [],
     registro_horas: [],
     pipeline: [],
     carga_mensual: [],
@@ -900,6 +985,7 @@ export function getAppDataDemoSeed(): AppData {
     proyectos: seedProyectos,
     entregables: seedEntregables,
     asignaciones_horas: seedAsignacionesHoras,
+    equipo_entregable: [],
     registro_horas: seedRegistroHoras,
     pipeline: seedPipeline,
     carga_mensual: seedCargaMensual,
@@ -942,6 +1028,7 @@ function getInitialData(): AppData {
     proyectos: normalizedProyectos,
     entregables: entregablesConConsumo,
     asignaciones_horas: asignacionesNormalized,
+    equipo_entregable: normalizeEquipoEntregableCarga((raw as AppData).equipo_entregable),
     registro_horas: Array.isArray(raw.registro_horas) ? raw.registro_horas : fallback.registro_horas,
     pipeline: pipelineHydrated,
     carga_mensual: Array.isArray(raw.carga_mensual) ? raw.carga_mensual : fallback.carga_mensual,
@@ -1293,6 +1380,153 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       ...prev,
       entregables: prev.entregables.filter((x) => x.id !== id),
       asignaciones_horas: prev.asignaciones_horas.filter((a) => a.entregable_id !== id),
+      equipo_entregable: (prev.equipo_entregable ?? []).filter((e) => e.entregable_id !== id),
+    }));
+  }, []);
+
+  const aplicarMigracionEquipoEntregable = useCallback((): ResumenAplicacionMigracionEquipo => {
+    let resumen: ResumenAplicacionMigracionEquipo = {
+      integrantes_creados: 0,
+      integrantes_omitidos_duplicado: 0,
+      integrantes_actualizados_rol: 0,
+      lideres_creados: 0,
+      apoyos_creados: 0,
+      conflictos_multiples_lideres: 0,
+      conflictos_lider_id_vs_asignaciones: 0,
+      duplicados_resueltos_en_preview: 0,
+      sugeridos_gasto_no_aplicados: 0,
+      observaciones: [],
+    };
+    setData((prev) => {
+      const preview = computePreviewMigracionEquipoEntregable({
+        clientes: prev.clientes,
+        proyectos: prev.proyectos,
+        entregables: prev.entregables,
+        profesionales: prev.profesionales,
+        asignaciones_horas: prev.asignaciones_horas,
+        registro_horas: prev.registro_horas,
+      });
+      const applied = aplicarMigracionEquipoEntregableDesdePreview(
+        prev.equipo_entregable ?? [],
+        preview,
+        now(),
+        uid,
+      );
+      resumen = applied.resumen;
+      return { ...prev, equipo_entregable: applied.equipo };
+    });
+    return resumen;
+  }, []);
+
+  const agregarIntegranteEquipoEntregable = useCallback(
+    (input: {
+      entregable_id: string;
+      profesional_id: string;
+      rol_en_entregable: AsignacionHoraRol;
+    }): { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string } => {
+      const eid = (input.entregable_id ?? "").trim();
+      const pid = (input.profesional_id ?? "").trim();
+      const rol = input.rol_en_entregable === "LIDER" ? "LIDER" : "APOYO";
+      if (!eid || !pid) return { ok: false, error: "Entregable y profesional son obligatorios." };
+
+      let liderAnteriorPasadoApoyo = false;
+      let result: { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string } = {
+        ok: true,
+        liderAnteriorPasadoApoyo: false,
+      };
+
+      setData((prev) => {
+        const ent = prev.entregables.find((e) => e.id === eid);
+        const prof = prev.profesionales.find((p) => p.id === pid);
+        if (!ent) {
+          result = { ok: false, error: "El entregable no existe." };
+          return prev;
+        }
+        if (!prof) {
+          result = { ok: false, error: "El profesional no existe." };
+          return prev;
+        }
+        const duplicado = (prev.equipo_entregable ?? []).some(
+          (e) => (e.entregable_id ?? "").trim() === eid && (e.profesional_id ?? "").trim() === pid,
+        );
+        if (duplicado) {
+          result = { ok: false, error: "Este profesional ya está en el equipo del entregable." };
+          return prev;
+        }
+
+        let equipo = [...(prev.equipo_entregable ?? [])];
+        if (rol === "LIDER") {
+          const habiaLider = equipo.some(
+            (e) => (e.entregable_id ?? "").trim() === eid && e.rol_en_entregable === "LIDER",
+          );
+          liderAnteriorPasadoApoyo = habiaLider;
+          equipo = aplicarReglaUnicoLider(equipo, eid, pid);
+        }
+
+        const row: EquipoEntregable = {
+          id: uid(),
+          entregable_id: eid,
+          profesional_id: pid,
+          rol_en_entregable: rol,
+          origen: "manual",
+          created_at: now(),
+          updated_at: now(),
+        };
+        result = { ok: true, liderAnteriorPasadoApoyo };
+        return { ...prev, equipo_entregable: [...equipo, row] };
+      });
+      return result;
+    },
+    [],
+  );
+
+  const cambiarRolIntegranteEquipoEntregable = useCallback(
+    (
+      equipoId: string,
+      rol_en_entregable: AsignacionHoraRol,
+    ): { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string } => {
+      const rol = rol_en_entregable === "LIDER" ? "LIDER" : "APOYO";
+      let liderAnteriorPasadoApoyo = false;
+      let result: { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string } = {
+        ok: true,
+        liderAnteriorPasadoApoyo: false,
+      };
+
+      setData((prev) => {
+        const row = (prev.equipo_entregable ?? []).find((e) => e.id === equipoId);
+        if (!row) {
+          result = { ok: false, error: "Integrante no encontrado." };
+          return prev;
+        }
+        const eid = (row.entregable_id ?? "").trim();
+        let equipo = [...(prev.equipo_entregable ?? [])];
+
+        if (rol === "LIDER") {
+          const habiaOtroLider = equipo.some(
+            (e) =>
+              (e.entregable_id ?? "").trim() === eid &&
+              e.rol_en_entregable === "LIDER" &&
+              e.id !== equipoId,
+          );
+          liderAnteriorPasadoApoyo = habiaOtroLider;
+          equipo = aplicarReglaUnicoLider(equipo, eid, row.profesional_id, equipoId);
+        }
+
+        equipo = equipo.map((e) =>
+          e.id === equipoId ? { ...e, rol_en_entregable: rol, updated_at: now() } : e,
+        );
+        result = { ok: true, liderAnteriorPasadoApoyo };
+        return { ...prev, equipo_entregable: equipo };
+      });
+      return result;
+    },
+    [],
+  );
+
+  const quitarIntegranteEquipoEntregable = useCallback((equipoId: string) => {
+    setData((prev) => ({
+      ...prev,
+      equipo_entregable: (prev.equipo_entregable ?? []).filter((e) => e.id !== equipoId),
     }));
   }, []);
 
@@ -1758,7 +1992,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           fecha,
         );
         const horasAct = horasEntregableARecord(ent);
-        const errs = validarRedistribucionHoras(horasAct, input.horasNuevas, lineas, tr.tarifas, input.comentario);
+        const errs = validarRedistribucionHoras(horasAct, input.horasNuevas, lineas, tr.tarifas, input.comentario, {
+          exigirMultiploMediaHora: false,
+        });
         if (errs.length) {
           result = { ok: false, errors: errs };
           return prev;
@@ -1839,11 +2075,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
       const asignaciones_horas = prev.asignaciones_horas.filter((a) => !entSet.has(a.entregable_id) && !idSet.has(a.proyecto_id));
 
+      const equipo_entregable = (prev.equipo_entregable ?? []).filter((e) => !entSet.has(e.entregable_id));
+
       const historial_redistribuciones_horas = (prev.historial_redistribuciones_horas ?? []).filter(
         (h) => !idSet.has(h.proyecto_id) && !entSet.has(h.entregable_id),
       );
 
-      return { ...prev, proyectos, entregables, asignaciones_horas, historial_redistribuciones_horas };
+      return { ...prev, proyectos, entregables, asignaciones_horas, equipo_entregable, historial_redistribuciones_horas };
     });
   }, []);
 
@@ -1875,6 +2113,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     cerrarAsignacionHora,
     repararImputacionesCierreAsignaciones,
     deleteAsignacionHora,
+    aplicarMigracionEquipoEntregable,
+    agregarIntegranteEquipoEntregable,
+    cambiarRolIntegranteEquipoEntregable,
+    quitarIntegranteEquipoEntregable,
     addPipeline: pipelineCrud.add,
     updatePipeline: pipelineCrud.update,
     deletePipeline: pipelineCrud.delete,
@@ -1893,6 +2135,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 }
 
 export type { HistorialRedistribucionHoras, HorasPorCategoria } from "@/entregables/redistribucionHorasEntregable";
+export type { ResumenAplicacionMigracionEquipo } from "@/equipo/aplicarMigracionEquipoEntregable";
 
 export function useAppData() {
   const ctx = useContext(AppDataContext);
