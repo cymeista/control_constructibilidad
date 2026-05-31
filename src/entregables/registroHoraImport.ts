@@ -5,7 +5,8 @@
  */
 
 import { format, isValid, parse } from "date-fns";
-import type { Entregable, Profesional, Proyecto, RegistroHora } from "@/context/AppDataContext";
+import type { Entregable, EquipoEntregable, Profesional, Proyecto, RegistroHora } from "@/context/AppDataContext";
+import { enrichRegistroHoraImportPreviewConAdvertencias } from "@/horas/registroHoraAdvertenciasOperativas";
 
 export const REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS = [
   "proyecto_codigo",
@@ -49,6 +50,8 @@ export interface RegistroHoraImportPreviewRow {
   cells: Record<RegistroHoraImportColumn, string>;
   status: RegistroHoraImportRowStatus;
   errors: string[];
+  /** Advertencias operativas (equipo / déficit categoría); no bloquean importación. */
+  warnings: string[];
   proyecto_id?: string;
   entregable_id?: string;
   profesional_id?: string;
@@ -59,7 +62,7 @@ export interface RegistroHoraImportPreviewRow {
 export interface RegistroHoraImportPreviewResult {
   rows: RegistroHoraImportPreviewRow[];
   headersError: string | null;
-  totals: { all: number; ok: number; error: number };
+  totals: { all: number; ok: number; error: number; warn: number };
 }
 
 export function normalizeImportHeaderCell(raw: string): string {
@@ -266,6 +269,10 @@ export interface RegistroHoraImportContext {
   proyectos: Proyecto[];
   entregables: Entregable[];
   profesionales: Profesional[];
+  /** Gasto actual para simular déficit por categoría en advertencias del lote. */
+  registro_horas?: RegistroHora[];
+  /** Participación líder/apoyo para advertencia fuera de equipo. */
+  equipo_entregable?: EquipoEntregable[];
 }
 
 export function buildRegistroHoraImportPreview(
@@ -277,7 +284,7 @@ export function buildRegistroHoraImportPreview(
     return {
       rows: [],
       headersError: "El archivo no contiene filas.",
-      totals: { all: 0, ok: 0, error: 0 },
+      totals: { all: 0, ok: 0, error: 0, warn: 0 },
     };
   }
 
@@ -294,7 +301,7 @@ export function buildRegistroHoraImportPreview(
     return {
       rows: [],
       headersError: `Faltan columnas obligatorias: ${missing.join(", ")}. Use exactamente: ${REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS.join(", ")}.`,
-      totals: { all: 0, ok: 0, error: 0 },
+      totals: { all: 0, ok: 0, error: 0, warn: 0 },
     };
   }
 
@@ -414,6 +421,7 @@ export function buildRegistroHoraImportPreview(
         cells,
         status: "OK",
         errors: [],
+        warnings: [],
         proyecto_id: payload.proyecto_id ?? undefined,
         entregable_id: payload.entregable_id ?? undefined,
         profesional_id: payload.profesional_id,
@@ -430,6 +438,7 @@ export function buildRegistroHoraImportPreview(
         cells,
         status: "ERROR",
         errors: errList,
+        warnings: [],
         proyecto_id,
         entregable_id,
         profesional_id,
@@ -437,10 +446,20 @@ export function buildRegistroHoraImportPreview(
     }
   }
 
+  const rowsConAdvertencias = enrichRegistroHoraImportPreviewConAdvertencias(rows, {
+    entregables: ctx.entregables,
+    profesionales: ctx.profesionales,
+    proyectos: ctx.proyectos,
+    registro_horas: ctx.registro_horas ?? [],
+    equipo_entregable: ctx.equipo_entregable ?? [],
+  });
+
+  const warn = rowsConAdvertencias.filter((r) => r.status === "OK" && (r.warnings?.length ?? 0) > 0).length;
+
   return {
-    rows,
+    rows: rowsConAdvertencias,
     headersError: null,
-    totals: { all: rows.length, ok, error },
+    totals: { all: rowsConAdvertencias.length, ok, error, warn },
   };
 }
 

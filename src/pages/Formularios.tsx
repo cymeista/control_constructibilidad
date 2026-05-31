@@ -327,6 +327,8 @@ export default function Formularios() {
   const data = useAppData();
   const { role, user } = useAuth();
   const puedeMarcarRevisionAlerta = canMarcarAlertasOperativasRevisadas(role ?? "LECTOR");
+  /** Botón/columna Normalizar → asignaciones_horas: solo ADMIN (legacy; lógica conservada). */
+  const mostrarNormalizarAsignacionLegacyUi = role === "ADMIN";
 
   const entityParam = searchParams.get("entity");
   const focusParam = searchParams.get("focus");
@@ -2521,52 +2523,56 @@ export default function Formularios() {
               },
               { key: "horas", header: "Horas" },
               { key: "descripcion", header: "Descripción" },
-              {
-                key: "normalizacion",
-                header: "Normalización",
-                tdClassName: "whitespace-normal align-top min-w-[140px]",
-                render: (r) => {
-                  if (r.tipo_hora !== "DIRECTA") return <span className="text-t400">—</span>;
-                  const alerta = alertaNormalizacionPorRegistroId.get(r.id);
-                  if (!alerta) return null;
-                  const eid = (r.entregable_id ?? "").trim();
-                  const pid = (r.profesional_id ?? "").trim();
-                  if (!eid || !pid) return null;
-                  const fmtH = (n: number) =>
-                    n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-                  const badge =
-                    alerta.kind === "sin_asignacion" ? (
-                      <span className="rounded-r6 border border-amber-200/80 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
-                        Sin asignación
-                      </span>
-                    ) : (
-                      <span className="rounded-r6 border border-orange-200/80 bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-900">
-                        Déficit {fmtH(alerta.deficit)} h
-                      </span>
-                    );
-                  return (
-                    <div className="flex flex-col items-start gap-1.5">
-                      {badge}
-                      <button
-                        type="button"
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          irANormalizarAsignacion({
-                            clienteId: alerta.clienteId,
-                            proyectoId: alerta.proyectoId,
-                            entregableId: eid,
-                            profesionalId: pid,
-                            horasSugeridas: alerta.horasSugeridas,
-                          });
-                        }}
-                        className="rounded-r6 border border-bdr bg-white px-2 py-0.5 text-[10px] font-semibold text-t700 shadow-sm hover:bg-surface2"
-                      >
-                        Normalizar
-                      </button>
-                    </div>
-                  );
-                },
-              },
+              ...(mostrarNormalizarAsignacionLegacyUi
+                ? [
+                    {
+                      key: "normalizacion",
+                      header: "Legacy · asignación",
+                      tdClassName: "whitespace-normal align-top min-w-[140px]",
+                      render: (r: RegistroHora) => {
+                        if (r.tipo_hora !== "DIRECTA") return <span className="text-t400">—</span>;
+                        const alerta = alertaNormalizacionPorRegistroId.get(r.id);
+                        if (!alerta) return null;
+                        const eid = (r.entregable_id ?? "").trim();
+                        const pid = (r.profesional_id ?? "").trim();
+                        if (!eid || !pid) return null;
+                        const fmtH = (n: number) =>
+                          n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+                        const badge =
+                          alerta.kind === "sin_asignacion" ? (
+                            <span className="rounded-r6 border border-t400/30 bg-surface2 px-2 py-0.5 text-[10px] font-medium text-t600">
+                              Sin asignación
+                            </span>
+                          ) : (
+                            <span className="rounded-r6 border border-t400/30 bg-surface2 px-2 py-0.5 text-[10px] font-medium text-t600">
+                              Déficit asig. {fmtH(alerta.deficit)} h
+                            </span>
+                          );
+                        return (
+                          <div className="flex flex-col items-start gap-1.5">
+                            {badge}
+                            <button
+                              type="button"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                irANormalizarAsignacion({
+                                  clienteId: alerta.clienteId,
+                                  proyectoId: alerta.proyectoId,
+                                  entregableId: eid,
+                                  profesionalId: pid,
+                                  horasSugeridas: alerta.horasSugeridas,
+                                });
+                              }}
+                              className="rounded-r6 border border-bdr bg-white px-2 py-0.5 text-[10px] font-medium text-t500 hover:bg-surface2"
+                            >
+                              Normalizar (legacy)
+                            </button>
+                          </div>
+                        );
+                      },
+                    },
+                  ]
+                : []),
             ]}
             onEdit={handleEditFromList}
             onDelete={(item) => setDeleteItem({ id: item.id, name: `${item.fecha} — ${item.horas} hrs` })}
@@ -2618,31 +2624,35 @@ export default function Formularios() {
                 </>
               );
             }}
-            renderMobileCardExtra={(r) => {
-              if (r.tipo_hora !== "DIRECTA") return null;
-              const alerta = alertaNormalizacionPorRegistroId.get(r.id);
-              if (!alerta) return null;
-              const eid = (r.entregable_id ?? "").trim();
-              const pid = (r.profesional_id ?? "").trim();
-              if (!eid || !pid) return null;
-              return (
-                <button
-                  type="button"
-                  onClick={() =>
-                    irANormalizarAsignacion({
-                      clienteId: alerta.clienteId,
-                      proyectoId: alerta.proyectoId,
-                      entregableId: eid,
-                      profesionalId: pid,
-                      horasSugeridas: alerta.horasSugeridas,
-                    })
+            renderMobileCardExtra={
+              mostrarNormalizarAsignacionLegacyUi
+                ? (r) => {
+                    if (r.tipo_hora !== "DIRECTA") return null;
+                    const alerta = alertaNormalizacionPorRegistroId.get(r.id);
+                    if (!alerta) return null;
+                    const eid = (r.entregable_id ?? "").trim();
+                    const pid = (r.profesional_id ?? "").trim();
+                    if (!eid || !pid) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          irANormalizarAsignacion({
+                            clienteId: alerta.clienteId,
+                            proyectoId: alerta.proyectoId,
+                            entregableId: eid,
+                            profesionalId: pid,
+                            horasSugeridas: alerta.horasSugeridas,
+                          })
+                        }
+                        className="flex min-h-[44px] w-full items-center justify-center rounded-r8 border border-bdr bg-surface2 px-4 py-2.5 text-[12px] font-medium text-t600 hover:bg-white"
+                      >
+                        Normalizar asignación (legacy)
+                      </button>
+                    );
                   }
-                  className="flex min-h-[44px] w-full items-center justify-center rounded-r8 border border-copper/40 bg-copper-bg px-4 py-2.5 text-[13px] font-semibold text-copper shadow-sm transition-colors hover:bg-copper/10"
-                >
-                  Normalizar → Asignación
-                </button>
-              );
-            }}
+                : undefined
+            }
           />
         );
       case "pipeline":

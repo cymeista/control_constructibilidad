@@ -1,6 +1,6 @@
 import { Controller, useForm, type Resolver, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarDays, Check } from "lucide-react";
+import { CalendarDays, Check, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -101,7 +101,11 @@ import {
   type AsignacionHoraSobrecupoConfirmacion,
 } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
-import { canCrearAsignacionSobrecupo } from "@/security/permissions";
+import { canCrearAsignacionSobrecupo, canGestionarEquipoEntregable } from "@/security/permissions";
+import {
+  advertenciasOperativasRegistroDirecta,
+  MSG_PROFESIONAL_FUERA_EQUIPO,
+} from "@/horas/registroHoraAdvertenciasOperativas";
 
 /* ─── Shared form field wrapper ─── */
 function Field({ label, error, children, required }: { label: string; error?: string; children: ReactNode; required?: boolean }) {
@@ -1230,8 +1234,19 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const { profesionales, proyectos, entregables, registro_horas, asignaciones_horas, addRegistroHora, updateRegistroHora } =
-    useAppData();
+  const {
+    profesionales,
+    proyectos,
+    entregables,
+    registro_horas,
+    asignaciones_horas,
+    equipo_entregable,
+    addRegistroHora,
+    updateRegistroHora,
+    agregarIntegranteEquipoEntregable,
+  } = useAppData();
+  const { role } = useAuth();
+  const [legacyAvisosAbierto, setLegacyAvisosAbierto] = useState(false);
 
   const registroHoraSchemaResolved = useMemo(
     () => createRegistroHoraSchema(entregables.map((e) => ({ id: e.id, proyecto_id: e.proyecto_id }))),
@@ -1290,6 +1305,68 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
   const fechaW = watch("fecha");
   const horasW = watch("horas");
   const filteredEntregables = entregables.filter((e) => e.proyecto_id === proyectoId);
+
+  const advertenciasOperativas = useMemo(() => {
+    if (tipo !== "DIRECTA") return [];
+    const pid = (profesionalIdW ?? "").trim();
+    const eid = (entregableIdW ?? "").trim();
+    const pidProj = proyectoId ? String(proyectoId).trim() : "";
+    const h = Number(horasW);
+    if (!pid || !eid || !pidProj || !Number.isFinite(h) || h <= 0) return [];
+
+    const registroBase = editItem ? registro_horas.filter((r) => r.id !== editItem.id) : registro_horas;
+    return advertenciasOperativasRegistroDirecta(
+      {
+        entregable_id: eid,
+        profesional_id: pid,
+        proyecto_id: pidProj,
+        horas: h,
+      },
+      {
+        entregables,
+        profesionales,
+        proyectos,
+        registro_horas: registroBase,
+        equipo_entregable: equipo_entregable ?? [],
+        extrasSimulacion: [
+          {
+            entregable_id: eid,
+            profesional_id: pid,
+            proyecto_id: pidProj,
+            horas: h,
+          },
+        ],
+        sufijoPresupuestoManual: true,
+      },
+    );
+  }, [
+    tipo,
+    profesionalIdW,
+    entregableIdW,
+    proyectoId,
+    horasW,
+    editItem,
+    registro_horas,
+    entregables,
+    profesionales,
+    proyectos,
+    equipo_entregable,
+  ]);
+
+  const advertenciasOperativasTexto = useMemo(
+    () =>
+      advertenciasOperativas.map((w) =>
+        w === MSG_PROFESIONAL_FUERA_EQUIPO
+          ? "Este profesional no está declarado en el equipo del entregable."
+          : w,
+      ),
+    [advertenciasOperativas],
+  );
+
+  const fueraEquipoYAdmin =
+    tipo === "DIRECTA" &&
+    canGestionarEquipoEntregable(role ?? "LECTOR") &&
+    advertenciasOperativas.some((w) => w === MSG_PROFESIONAL_FUERA_EQUIPO);
 
   const excesoTrasEstaCarga = useMemo(() => {
     if (tipo !== "DIRECTA") return [];
@@ -1505,50 +1582,96 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
           Fase y tarea quedan definidas por el entregable elegido (trazabilidad vía entregable; no se ingresan aquí).
         </p>
       )}
-      {tipo === "DIRECTA" && estadoAsignacionRegistroDirecto?.kind === "sin_asignacion" ? (
-        <div className={`${registroAvisoBase} border-rose-500/45 bg-rose-500/10 text-rose-950`}>
-          <p className={registroAvisoTitle}>Este profesional no tiene horas asignadas en este entregable.</p>
-          <p className={`${registroAvisoText} text-rose-900/95`}>
-            <span className="font-semibold">{estadoAsignacionRegistroDirecto.nombreProfesional}</span> en «
-            {estadoAsignacionRegistroDirecto.nombreEntregable}» · nueva carga{" "}
-            <span className="font-mono">{estadoAsignacionRegistroDirecto.horasNuevaCarga.toFixed(1)}</span> h.
-          </p>
-          <p className={`${registroAvisoText} text-rose-900/95`}>
-            Puede guardar igual: es una alerta operativa para revisar asignación.
-          </p>
-        </div>
-      ) : null}
-      {tipo === "DIRECTA" && estadoAsignacionRegistroDirecto?.kind === "con_saldo" ? (
-        <div className={`${registroAvisoBase} border-emerald-500/35 bg-emerald-500/10 text-emerald-950`}>
-          <p className={registroAvisoTitle}>Asignación activa detectada para este profesional en el entregable.</p>
-          <p className={`${registroAvisoText} text-emerald-900/95`}>
-            A <span className="font-semibold">{estadoAsignacionRegistroDirecto.nombreProfesional}</span> le quedan{" "}
-            <span className="font-mono font-semibold">{estadoAsignacionRegistroDirecto.saldoDisponible.toFixed(1)}</span> h
-            asignadas disponibles en «{estadoAsignacionRegistroDirecto.nombreEntregable}».
-          </p>
-        </div>
-      ) : null}
-      {tipo === "DIRECTA" && excesoTrasEstaCarga.length > 0 ? (
-        <div className={`${registroAvisoBase} border-rose-500/45 bg-rose-500/10 text-rose-950`}>
-          <p className={registroAvisoTitle}>Esta carga dejaría el compromiso de asignación por debajo del gasto real</p>
-          <p className={`${registroAvisoText} text-rose-900/95`}>
-            Puede guardar igual: no hay bloqueo. Revise horas comprometidas o cierre de asignación si corresponde.
+      {tipo === "DIRECTA" && advertenciasOperativasTexto.length > 0 ? (
+        <div className={`${registroAvisoBase} border-amber-500/45 bg-amber-500/10 text-amber-950`}>
+          <p className={registroAvisoTitle}>Advertencias operativas</p>
+          <p className={`${registroAvisoText} text-amber-900/95`}>
+            Puede guardar igual; revise equipo del entregable o presupuesto por categoría en Gestión de Horas.
           </p>
           <ul className={registroAvisoList}>
-            {excesoTrasEstaCarga.map((row) => {
-              const prof = profesionales.find((p) => p.id === (profesionalIdW ?? "").trim());
-              const nombre = prof?.nombre_completo ?? (profesionalIdW || "El profesional");
-              return (
-                <li key={row.asignacionId}>
-                  <span className="font-semibold">{nombre}</span>{" "}
-                  <span className="font-mono text-t800">({row.categoria})</span>: asignado{" "}
-                  <span className="font-mono">{row.comprometidas.toFixed(1)}</span> h · proyectado con esta carga{" "}
-                  <span className="font-mono">{row.gastadoProyectado.toFixed(1)}</span> h · exceso{" "}
-                  <span className="font-mono font-semibold">{row.exceso.toFixed(1)}</span> h
-                </li>
-              );
-            })}
+            {advertenciasOperativasTexto.map((msg) => (
+              <li key={msg}>{msg}</li>
+            ))}
           </ul>
+          {fueraEquipoYAdmin && entregableIdW && profesionalIdW ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2 h-8 border-amber-600/40 text-[11px] text-amber-950 hover:bg-amber-500/15"
+              onClick={() => {
+                const res = agregarIntegranteEquipoEntregable({
+                  entregable_id: String(entregableIdW).trim(),
+                  profesional_id: String(profesionalIdW).trim(),
+                  rol_en_entregable: "APOYO",
+                });
+                if (!res.ok) {
+                  window.alert(res.error);
+                }
+              }}
+            >
+              Agregar como apoyo
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {tipo === "DIRECTA" &&
+      (estadoAsignacionRegistroDirecto != null || excesoTrasEstaCarga.length > 0) ? (
+        <div className="rounded-r8 border border-bdr/80 bg-surface2/50">
+          <button
+            type="button"
+            onClick={() => setLegacyAvisosAbierto((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-[12px] font-medium text-t600 hover:bg-surface2"
+          >
+            <span>Advertencias legacy de asignación</span>
+            <ChevronDown
+              size={16}
+              className={`shrink-0 text-t400 transition-transform ${legacyAvisosAbierto ? "rotate-180" : ""}`}
+            />
+          </button>
+          {legacyAvisosAbierto ? (
+            <div className="space-y-3 border-t border-bdr px-4 py-3">
+              {estadoAsignacionRegistroDirecto?.kind === "sin_asignacion" ? (
+                <div className={`${registroAvisoBase} border-t400/30 bg-white text-t800`}>
+                  <p className={registroAvisoTitle}>Sin asignación ACTIVA (legacy)</p>
+                  <p className={`${registroAvisoText} text-t600`}>
+                    <span className="font-semibold">{estadoAsignacionRegistroDirecto.nombreProfesional}</span> en «
+                    {estadoAsignacionRegistroDirecto.nombreEntregable}» · nueva carga{" "}
+                    <span className="font-mono">{estadoAsignacionRegistroDirecto.horasNuevaCarga.toFixed(1)}</span> h.
+                  </p>
+                </div>
+              ) : null}
+              {estadoAsignacionRegistroDirecto?.kind === "con_saldo" ? (
+                <div className={`${registroAvisoBase} border-t400/30 bg-white text-t800`}>
+                  <p className={registroAvisoTitle}>Asignación activa (legacy)</p>
+                  <p className={`${registroAvisoText} text-t600`}>
+                    Saldo asignado disponible:{" "}
+                    <span className="font-mono">{estadoAsignacionRegistroDirecto.saldoDisponible.toFixed(1)}</span> h.
+                  </p>
+                </div>
+              ) : null}
+              {excesoTrasEstaCarga.length > 0 ? (
+                <div className={`${registroAvisoBase} border-t400/30 bg-white text-t800`}>
+                  <p className={registroAvisoTitle}>Gasto real vs horas comprometidas (legacy)</p>
+                  <ul className={registroAvisoList}>
+                    {excesoTrasEstaCarga.map((row) => {
+                      const prof = profesionales.find((p) => p.id === (profesionalIdW ?? "").trim());
+                      const nombre = prof?.nombre_completo ?? (profesionalIdW || "El profesional");
+                      return (
+                        <li key={row.asignacionId} className="text-t600">
+                          <span className="font-semibold">{nombre}</span>{" "}
+                          <span className="font-mono">({row.categoria})</span>: asignado{" "}
+                          <span className="font-mono">{row.comprometidas.toFixed(1)}</span> h · proyectado{" "}
+                          <span className="font-mono">{row.gastadoProyectado.toFixed(1)}</span> h · exceso{" "}
+                          <span className="font-mono">{row.exceso.toFixed(1)}</span> h
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <Field label="Descripción">

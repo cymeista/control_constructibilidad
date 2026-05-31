@@ -25,7 +25,8 @@ type Props = {
 };
 
 export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess }: Props) {
-  const { proyectos, entregables, profesionales, addRegistroHorasBatch } = useAppData();
+  const { proyectos, entregables, profesionales, registro_horas, equipo_entregable, addRegistroHorasBatch } =
+    useAppData();
   const [csvText, setCsvText] = useState("");
   const [fileLabel, setFileLabel] = useState<string | null>(null);
 
@@ -35,8 +36,10 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
         proyectos,
         entregables,
         profesionales,
+        registro_horas,
+        equipo_entregable,
       }),
-    [csvText, proyectos, entregables, profesionales],
+    [csvText, proyectos, entregables, profesionales, registro_horas, equipo_entregable],
   );
 
   const reset = useCallback(() => {
@@ -120,6 +123,9 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
                 <span className="text-red-700">
                   Error: <strong className="font-mono">{preview.totals.error}</strong>
                 </span>
+                <span className="text-amber-700">
+                  Con advertencia: <strong className="font-mono">{preview.totals.warn ?? 0}</strong>
+                </span>
               </div>
             )}
           </div>
@@ -141,13 +147,20 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
                     <th className="px-2 py-2">entregable_id</th>
                     <th className="px-2 py-2">profesional_id</th>
                     <th className="px-2 py-2">Errores</th>
+                    <th className="px-2 py-2">Advertencias</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.rows.map((row) => (
                     <tr
                       key={row.lineIndex}
-                      className={`border-t border-bdr ${row.status === "OK" ? "bg-white" : "bg-red-50/50"}`}
+                      className={`border-t border-bdr ${
+                        row.status === "ERROR"
+                          ? "bg-red-50/50"
+                          : (row.warnings?.length ?? 0) > 0
+                            ? "bg-amber-50/40"
+                            : "bg-white"
+                      }`}
                     >
                       <td className="px-2 py-1.5 font-mono text-t500">{row.lineIndex}</td>
                       <td className="px-2 py-1.5 font-semibold">{row.status}</td>
@@ -169,6 +182,9 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
                         {row.profesional_id ?? "—"}
                       </td>
                       <td className="px-2 py-1.5 text-red-800">{row.errors.join("; ") || "—"}</td>
+                      <td className="px-2 py-1.5 text-amber-900">
+                        {(row.warnings ?? []).join("; ") || "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
