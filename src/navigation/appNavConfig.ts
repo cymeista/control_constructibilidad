@@ -32,7 +32,8 @@ export const primaryNavItems: NavItemConfig[] = [
   { to: "/pipeline", label: "Pipeline Comercial", shortLabel: "Pipeline", icon: ClipboardList },
   { to: "/proyectos", label: "Proyectos", shortLabel: "Proyectos", icon: FolderKanban },
   { to: "/profesionales", label: "Profesionales", shortLabel: "Equipo", icon: UserCircle },
-  { to: "/gantt", label: "Gantt", shortLabel: "Gantt", icon: CalendarDays },
+  { to: "/gantt", label: "Gantt Proyectos", shortLabel: "G. Proy.", icon: CalendarDays },
+  { to: "/gantt-profesionales", label: "Gantt Profesionales", shortLabel: "G. Prof.", icon: CalendarDays },
 ];
 
 export const secondaryNavItems: NavItemConfig[] = [

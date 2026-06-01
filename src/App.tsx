@@ -8,6 +8,7 @@ import Proyectos from './pages/Proyectos'
 import AuditoriaProyectos from './pages/AuditoriaProyectos'
 import Profesionales from './pages/Profesionales'
 import Gantt from './pages/Gantt'
+import GanttProfesionales from './pages/GanttProfesionales'
 import CapacidadEquipo from './pages/CapacidadEquipo'
 import ReporteEjecutivo from './pages/ReporteEjecutivo'
 import Alertas from './pages/Alertas'
@@ -24,6 +25,14 @@ export default function App() {
         <Route path="proyectos" element={<RequireRole route="/proyectos"><Proyectos /></RequireRole>} />
         <Route path="profesionales" element={<RequireRole route="/profesionales"><Profesionales /></RequireRole>} />
         <Route path="gantt" element={<RequireRole route="/gantt"><Gantt /></RequireRole>} />
+        <Route
+          path="gantt-profesionales"
+          element={
+            <RequireRole route="/gantt-profesionales">
+              <GanttProfesionales />
+            </RequireRole>
+          }
+        />
         <Route path="horas" element={<RequireRole route="/horas"><Horas /></RequireRole>} />
         <Route
           path="capacidad-equipo"

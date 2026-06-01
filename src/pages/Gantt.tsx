@@ -555,7 +555,7 @@ export default function Gantt() {
   if (months.length === 0) {
     return (
       <div className="min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-0">
-        <SectionHeader number="06" title="Carta Gantt de Entregables" hint="Sin datos" />
+        <SectionHeader number="06" title="Gantt Proyectos" hint="Sin datos" />
         <div className="flex flex-col items-center justify-center py-[60px] text-center">
           <CalendarX className="mb-3 h-[2.5rem] w-[2.5rem] opacity-25" style={{ color: "#9CA3AF" }} />
           <p className="text-[13px] text-t300">No hay entregables para mostrar en el rango seleccionado</p>
@@ -568,7 +568,7 @@ export default function Gantt() {
     <div className="min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-0">
       <SectionHeader
         number="06"
-        title="Carta Gantt de Entregables"
+        title="Gantt Proyectos"
         hint={`${totalDeliverables} entregables · ${months.length} meses`}
       />
 

@@ -5,6 +5,7 @@ export type AppRoute =
   | "/proyectos"
   | "/profesionales"
   | "/gantt"
+  | "/gantt-profesionales"
   | "/horas"
   | "/capacidad-equipo"
   | "/reportes"
@@ -24,7 +25,8 @@ function guestCanViewRoute(route: AppRoute): boolean {
     route === "/pipeline" ||
     route === "/proyectos" ||
     route === "/profesionales" ||
-    route === "/gantt"
+    route === "/gantt" ||
+    route === "/gantt-profesionales"
   );
 }
 
@@ -44,6 +46,7 @@ export function canViewRouteForSession(role: AppRole | null, route: AppRoute): b
       route === "/horas" ||
       route === "/profesionales" ||
       route === "/gantt" ||
+      route === "/gantt-profesionales" ||
       route === "/capacidad-equipo" ||
       route === "/reportes" ||
       route === "/pipeline"
