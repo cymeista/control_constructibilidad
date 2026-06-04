@@ -17,6 +17,9 @@ import type {
   TipoEvaluacionEntregableTipo,
 } from "@/context/AppDataContext";
 import EvaluacionRespaldosSection from "@/components/evaluacion/EvaluacionRespaldosSection";
+import { newEvaluacionId } from "@/evaluacion/evaluacionRespaldos";
+import { useAuth } from "@/security/AuthContext";
+import { canUploadEvaluacionRespaldoStorage } from "@/supabase/supabaseEvaluacionStorage";
 import {
   calcularPuntajesEvaluacion,
   fmtHorasEval,
@@ -55,7 +58,10 @@ export default function CrearEvaluacionEntregableModal({
     addEvaluacionEntregable,
     addPreguntaEvaluacionEntregable,
   } = useAppData();
+  const { role, authSource } = useAuth();
+  const canUploadStorage = canUploadEvaluacionRespaldoStorage(authSource, role);
 
+  const [pendingEvaluacionId, setPendingEvaluacionId] = useState(() => newEvaluacionId());
   const [profesionalId, setProfesionalId] = useState(profesionalInicialId);
   const [entregableId, setEntregableId] = useState("");
   const [tipo, setTipo] = useState<TipoEvaluacionEntregableTipo>("ENTREGABLE");
@@ -76,6 +82,7 @@ export default function CrearEvaluacionEntregableModal({
       setNuevaPreguntaTexto("");
       setMostrarAgregarPregunta(false);
       setRespaldos([]);
+      setPendingEvaluacionId(newEvaluacionId());
     }
   }, [open, profesionalInicialId]);
 
@@ -174,21 +181,24 @@ export default function CrearEvaluacionEntregableModal({
     });
 
     const fecha = new Date().toISOString().slice(0, 10);
-    addEvaluacionEntregable({
-      profesional_id: profesionalId,
-      entregable_id: opcionSel.entregableId,
-      proyecto_id: opcionSel.proyecto.id,
-      cliente_id: opcionSel.cliente.id,
-      rol_en_entregable: opcionSel.rol,
-      tipo_evaluacion: tipo,
-      respuestas: respuestasRows,
-      puntaje_obtenido: puntajes.puntaje_obtenido,
-      puntaje_maximo: puntajes.puntaje_maximo,
-      nota_final: puntajes.nota_final,
-      comentario: comentario.trim() || undefined,
-      fecha_evaluacion: fecha,
-      respaldos,
-    });
+    addEvaluacionEntregable(
+      {
+        profesional_id: profesionalId,
+        entregable_id: opcionSel.entregableId,
+        proyecto_id: opcionSel.proyecto.id,
+        cliente_id: opcionSel.cliente.id,
+        rol_en_entregable: opcionSel.rol,
+        tipo_evaluacion: tipo,
+        respuestas: respuestasRows,
+        puntaje_obtenido: puntajes.puntaje_obtenido,
+        puntaje_maximo: puntajes.puntaje_maximo,
+        nota_final: puntajes.nota_final,
+        comentario: comentario.trim() || undefined,
+        fecha_evaluacion: fecha,
+        respaldos,
+      },
+      { id: pendingEvaluacionId },
+    );
     onGuardado();
     onOpenChange(false);
   }, [
@@ -201,6 +211,7 @@ export default function CrearEvaluacionEntregableModal({
     tipo,
     comentario,
     respaldos,
+    pendingEvaluacionId,
     addEvaluacionEntregable,
     onGuardado,
     onOpenChange,
@@ -374,7 +385,13 @@ export default function CrearEvaluacionEntregableModal({
             </div>
           )}
 
-          <EvaluacionRespaldosSection respaldos={respaldos} onChange={setRespaldos} editable />
+          <EvaluacionRespaldosSection
+            respaldos={respaldos}
+            onChange={setRespaldos}
+            editable
+            evaluacionId={pendingEvaluacionId}
+            canUploadStorage={canUploadStorage}
+          />
 
           <label className="flex flex-col gap-1">
             <span className="text-[10px] font-semibold uppercase text-t500">Comentario (opcional)</span>

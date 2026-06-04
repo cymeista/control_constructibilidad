@@ -6,11 +6,17 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { EvaluacionEntregable } from "@/context/AppDataContext";
-import { EvaluacionRespaldosLista } from "@/components/evaluacion/EvaluacionRespaldosSection";
+import { useAppData } from "@/context/AppDataContext";
+import EvaluacionRespaldosSection, {
+  EvaluacionRespaldosLista,
+} from "@/components/evaluacion/EvaluacionRespaldosSection";
 import {
   RESPUESTA_EVALUACION_LABEL,
   TIPO_EVALUACION_LABEL,
 } from "@/evaluacion/evaluacionEntregablesLogic";
+import { useAuth } from "@/security/AuthContext";
+import { canUploadEvaluacionRespaldoStorage } from "@/supabase/supabaseEvaluacionStorage";
+import { isSupabaseConfigured } from "@/supabase/supabaseClient";
 
 export type EvaluacionEntregableDetalleView = {
   evaluacion: EvaluacionEntregable;
@@ -31,8 +37,14 @@ export default function EvaluacionEntregableDetalleModal({
   onOpenChange: (open: boolean) => void;
   detalle: EvaluacionEntregableDetalleView | null;
 }) {
+  const { updateEvaluacionEntregable } = useAppData();
+  const { role, authSource } = useAuth();
+  const canUploadStorage = canUploadEvaluacionRespaldoStorage(authSource, role);
+  const canOpenStorageFiles = isSupabaseConfigured() && authSource === "supabase";
+
   if (!detalle) return null;
   const { evaluacion: ev } = detalle;
+  const respaldos = ev.respaldos ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,12 +91,22 @@ export default function EvaluacionEntregableDetalleModal({
           </div>
         ) : null}
 
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-t500">
-            Respaldos / Evidencias
-          </p>
-          <EvaluacionRespaldosLista respaldos={ev.respaldos ?? []} />
-        </div>
+        {canUploadStorage ? (
+          <EvaluacionRespaldosSection
+            respaldos={respaldos}
+            evaluacionId={ev.id}
+            canUploadStorage
+            editable
+            onChange={(next) => updateEvaluacionEntregable(ev.id, { respaldos: next })}
+          />
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-t500">
+              Respaldos / Evidencias
+            </p>
+            <EvaluacionRespaldosLista respaldos={respaldos} canOpenStorage={canOpenStorageFiles} />
+          </div>
+        )}
 
         <div className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-t500">Respuestas</p>

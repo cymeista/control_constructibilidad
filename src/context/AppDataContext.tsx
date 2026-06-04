@@ -408,7 +408,7 @@ export interface EvaluacionEntregableRespuesta {
 export interface EvaluacionEntregableRespaldo {
   id: string;
   nombre: string;
-  tipo: "LINK" | "ARCHIVO_REFERENCIADO" | "NOTA";
+  tipo: "LINK" | "ARCHIVO_REFERENCIADO" | "NOTA" | "ARCHIVO_SUPABASE";
   descripcion?: string;
   url?: string;
   nombre_archivo?: string;
@@ -590,6 +590,7 @@ interface AppDataContextValue extends AppData {
   ) => void;
   addEvaluacionEntregable: (
     item: Omit<EvaluacionEntregable, "id" | "created_at" | "updated_at">,
+    options?: { id?: string },
   ) => void;
   updateEvaluacionEntregable: (id: string, patch: Partial<EvaluacionEntregable>) => void;
   deleteEvaluacionEntregable: (id: string) => void;
@@ -2005,6 +2006,27 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const evaluacionesEntregablesCrud = makeCrud("evaluaciones_entregables");
 
+  const addEvaluacionEntregable = useCallback(
+    (
+      item: Omit<EvaluacionEntregable, "id" | "created_at" | "updated_at">,
+      options?: { id?: string },
+    ) => {
+      const ts = now();
+      const presetId = options?.id?.trim();
+      const full: EvaluacionEntregable = {
+        ...item,
+        id: presetId || uid(),
+        created_at: ts,
+        updated_at: ts,
+      };
+      setData((prev) => ({
+        ...prev,
+        evaluaciones_entregables: [...prev.evaluaciones_entregables, full],
+      }));
+    },
+    [],
+  );
+
   const addPreguntaEvaluacionEntregable = useCallback(
     (
       item: Omit<PreguntaEvaluacionEntregable, "id" | "created_at" | "updated_at" | "origen" | "activa" | "orden"> & {
@@ -2247,7 +2269,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     deleteCurvaObjetivoAnual,
     ejecutarRedistribucionHorasEntregable,
     upsertEvaluacionDesempenoProfesional,
-    addEvaluacionEntregable: evaluacionesEntregablesCrud.add,
+    addEvaluacionEntregable,
     updateEvaluacionEntregable: evaluacionesEntregablesCrud.update,
     deleteEvaluacionEntregable: evaluacionesEntregablesCrud.delete,
     addPreguntaEvaluacionEntregable,
