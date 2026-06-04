@@ -9,6 +9,7 @@ import AuditoriaProyectos from './pages/AuditoriaProyectos'
 import Profesionales from './pages/Profesionales'
 import Gantt from './pages/Gantt'
 import GanttProfesionales from './pages/GanttProfesionales'
+import Evaluacion from './pages/Evaluacion'
 import CapacidadEquipo from './pages/CapacidadEquipo'
 import ReporteEjecutivo from './pages/ReporteEjecutivo'
 import Alertas from './pages/Alertas'
@@ -33,6 +34,7 @@ export default function App() {
             </RequireRole>
           }
         />
+        <Route path="evaluacion" element={<RequireRole route="/evaluacion"><Evaluacion /></RequireRole>} />
         <Route path="horas" element={<RequireRole route="/horas"><Horas /></RequireRole>} />
         <Route
           path="capacidad-equipo"

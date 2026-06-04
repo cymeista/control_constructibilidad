@@ -22,6 +22,8 @@ import {
   validateCierreAsignacionActiva,
 } from "@/entregables/asignacionHoraRules";
 import type { AppRole } from "@/security/localUsers";
+import { ensurePreguntasEvaluacionBase } from "@/evaluacion/preguntasEvaluacionSeed";
+import { normalizeEvaluacionesEntregablesCarga } from "@/evaluacion/evaluacionRespaldos";
 import {
   fechaHoyIsoLocal,
   horasDevueltasPresupuestoAlCierre,
@@ -391,6 +393,62 @@ export interface EvaluacionDesempenoProfesional {
   comentario_general: string | null;
 }
 
+export type TipoEvaluacionEntregableTipo = "TALLER" | "ENTREGABLE";
+export type RespuestaEvaluacionEntregableValor = "CUMPLE" | "CUMPLE_PARCIAL" | "NO_CUMPLE";
+
+export interface EvaluacionEntregableRespuesta {
+  pregunta_id: string;
+  texto: string;
+  categoria: string;
+  respuesta: RespuestaEvaluacionEntregableValor;
+  puntaje: number;
+}
+
+/** Metadata de evidencia (sin binarios); `storage_path` reservado para Supabase Storage. */
+export interface EvaluacionEntregableRespaldo {
+  id: string;
+  nombre: string;
+  tipo: "LINK" | "ARCHIVO_REFERENCIADO" | "NOTA";
+  descripcion?: string;
+  url?: string;
+  nombre_archivo?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  storage_path?: string;
+  created_at: string;
+}
+
+export interface EvaluacionEntregable {
+  id: string;
+  profesional_id: string;
+  entregable_id: string;
+  proyecto_id: string;
+  cliente_id?: string;
+  rol_en_entregable: "LIDER" | "APOYO";
+  tipo_evaluacion: TipoEvaluacionEntregableTipo;
+  respuestas: EvaluacionEntregableRespuesta[];
+  puntaje_obtenido: number;
+  puntaje_maximo: number;
+  nota_final: number;
+  comentario?: string;
+  fecha_evaluacion: string;
+  respaldos: EvaluacionEntregableRespaldo[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PreguntaEvaluacionEntregable {
+  id: string;
+  tipo_evaluacion: TipoEvaluacionEntregableTipo;
+  categoria: string;
+  texto: string;
+  activa: boolean;
+  orden: number;
+  origen: "BASE" | "MANUAL";
+  created_at: string;
+  updated_at: string;
+}
+
 interface AppData {
   clientes: Cliente[];
   profesionales: Profesional[];
@@ -412,6 +470,10 @@ interface AppData {
   evaluaciones_desempeno_profesional: EvaluacionDesempenoProfesional[];
   /** Alertas operativas marcadas como revisadas/archivadas (solo capa de vista; no altera cálculos). */
   alertas_revisadas: AlertaRevisada[];
+  /** Evaluaciones de desempeño por entregable completado (profesional + entregable + rol). */
+  evaluaciones_entregables: EvaluacionEntregable[];
+  /** Plantilla de preguntas Taller / Entregable (base + manuales). */
+  preguntas_evaluacion_entregables: PreguntaEvaluacionEntregable[];
 }
 
 interface AppDataContextValue extends AppData {
@@ -524,6 +586,17 @@ interface AppDataContextValue extends AppData {
     input: {
       objetivos: { id?: string; objetivo: string; evaluacion: string; estado?: string | null }[];
       comentario_general?: string | null;
+    },
+  ) => void;
+  addEvaluacionEntregable: (
+    item: Omit<EvaluacionEntregable, "id" | "created_at" | "updated_at">,
+  ) => void;
+  updateEvaluacionEntregable: (id: string, patch: Partial<EvaluacionEntregable>) => void;
+  deleteEvaluacionEntregable: (id: string) => void;
+  addPreguntaEvaluacionEntregable: (
+    item: Omit<PreguntaEvaluacionEntregable, "id" | "created_at" | "updated_at" | "origen" | "activa" | "orden"> & {
+      orden?: number;
+      activa?: boolean;
     },
   ) => void;
   /** Registra revisión de una alerta operativa por `clave_alerta` estable (upsert). */
@@ -971,6 +1044,8 @@ function createEmptyAppData(): AppData {
     historial_redistribuciones_horas: [],
     evaluaciones_desempeno_profesional: [],
     alertas_revisadas: [],
+    evaluaciones_entregables: [],
+    preguntas_evaluacion_entregables: [],
   };
 }
 
@@ -993,6 +1068,8 @@ export function getAppDataDemoSeed(): AppData {
     historial_redistribuciones_horas: [],
     evaluaciones_desempeno_profesional: [],
     alertas_revisadas: [],
+    evaluaciones_entregables: [],
+    preguntas_evaluacion_entregables: [],
   };
 }
 
@@ -1044,6 +1121,12 @@ function getInitialData(): AppData {
       (raw as AppData).evaluaciones_desempeno_profesional,
     ),
     alertas_revisadas: normalizeAlertasRevisadasCarga((raw as AppData).alertas_revisadas),
+    evaluaciones_entregables: normalizeEvaluacionesEntregablesCarga(
+      (raw as AppData).evaluaciones_entregables,
+    ),
+    preguntas_evaluacion_entregables: ensurePreguntasEvaluacionBase(
+      (raw as AppData).preguntas_evaluacion_entregables,
+    ),
   };
 }
 
@@ -1920,6 +2003,42 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const evaluacionesEntregablesCrud = makeCrud("evaluaciones_entregables");
+
+  const addPreguntaEvaluacionEntregable = useCallback(
+    (
+      item: Omit<PreguntaEvaluacionEntregable, "id" | "created_at" | "updated_at" | "origen" | "activa" | "orden"> & {
+        orden?: number;
+        activa?: boolean;
+      },
+    ) => {
+      const ts = now();
+      setData((prev) => {
+        const delTipo = prev.preguntas_evaluacion_entregables.filter(
+          (p) => p.tipo_evaluacion === item.tipo_evaluacion,
+        );
+        const maxOrden = delTipo.reduce((m, p) => Math.max(m, p.orden), 0);
+        const row: PreguntaEvaluacionEntregable = {
+          id: uid(),
+          tipo_evaluacion: item.tipo_evaluacion,
+          categoria: String(item.categoria ?? "").trim() || "General",
+          texto: String(item.texto ?? "").trim(),
+          activa: item.activa !== false,
+          orden: item.orden ?? maxOrden + 1,
+          origen: "MANUAL",
+          created_at: ts,
+          updated_at: ts,
+        };
+        if (!row.texto) return prev;
+        return {
+          ...prev,
+          preguntas_evaluacion_entregables: [...prev.preguntas_evaluacion_entregables, row],
+        };
+      });
+    },
+    [],
+  );
+
   const marcarAlertaRevisada = useCallback(
     (payload: {
       tipo_alerta: TipoAlertaOperativa;
@@ -2128,6 +2247,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     deleteCurvaObjetivoAnual,
     ejecutarRedistribucionHorasEntregable,
     upsertEvaluacionDesempenoProfesional,
+    addEvaluacionEntregable: evaluacionesEntregablesCrud.add,
+    updateEvaluacionEntregable: evaluacionesEntregablesCrud.update,
+    deleteEvaluacionEntregable: evaluacionesEntregablesCrud.delete,
+    addPreguntaEvaluacionEntregable,
     marcarAlertaRevisada,
   };
 

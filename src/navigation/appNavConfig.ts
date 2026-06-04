@@ -12,6 +12,7 @@ import {
   Settings,
   Bell,
   FileSearch,
+  ClipboardCheck,
 } from "lucide-react";
 import type { AppRoute } from "@/security/permissions";
 
@@ -34,6 +35,7 @@ export const primaryNavItems: NavItemConfig[] = [
   { to: "/profesionales", label: "Profesionales", shortLabel: "Equipo", icon: UserCircle },
   { to: "/gantt", label: "Gantt Proyectos", shortLabel: "G. Proy.", icon: CalendarDays },
   { to: "/gantt-profesionales", label: "Gantt Profesionales", shortLabel: "G. Prof.", icon: CalendarDays },
+  { to: "/evaluacion", label: "Evaluación", shortLabel: "Eval.", icon: ClipboardCheck },
 ];
 
 export const secondaryNavItems: NavItemConfig[] = [

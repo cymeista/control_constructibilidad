@@ -6,6 +6,7 @@ export type AppRoute =
   | "/profesionales"
   | "/gantt"
   | "/gantt-profesionales"
+  | "/evaluacion"
   | "/horas"
   | "/capacidad-equipo"
   | "/reportes"
@@ -26,7 +27,8 @@ function guestCanViewRoute(route: AppRoute): boolean {
     route === "/proyectos" ||
     route === "/profesionales" ||
     route === "/gantt" ||
-    route === "/gantt-profesionales"
+    route === "/gantt-profesionales" ||
+    route === "/evaluacion"
   );
 }
 
@@ -49,10 +51,16 @@ export function canViewRouteForSession(role: AppRole | null, route: AppRoute): b
       route === "/gantt-profesionales" ||
       route === "/capacidad-equipo" ||
       route === "/reportes" ||
-      route === "/pipeline"
+      route === "/pipeline" ||
+      route === "/evaluacion"
     );
   }
   return guestCanViewRoute(route);
+}
+
+/** Crear, editar o eliminar evaluaciones de entregables completados. */
+export function canGestionarEvaluacionEntregable(role: AppRole | null): boolean {
+  return role === "ADMIN";
 }
 
 /** @deprecated Preferir `canViewRouteForSession`. Mantenido para compatibilidad con chequeos `can*(role)`. */

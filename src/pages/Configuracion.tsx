@@ -31,6 +31,7 @@ import {
   Bell,
   UserCog,
   UsersRound,
+  ClipboardCheck,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -76,7 +77,7 @@ function useSettings() {
 
 /* ─────────── Backup JSON (AppData completo) ─────────── */
 
-const BACKUP_VERSION = 3;
+const BACKUP_VERSION = 4;
 
 /** Colecciones persistidas en `valtica_data_v1` / AppData. */
 const APP_DATA_COLLECTION_KEYS = [
@@ -94,6 +95,8 @@ const APP_DATA_COLLECTION_KEYS = [
   "historial_redistribuciones_horas",
   "evaluaciones_desempeno_profesional",
   "alertas_revisadas",
+  "evaluaciones_entregables",
+  "preguntas_evaluacion_entregables",
 ] as const;
 
 type AppDataCollectionKey = (typeof APP_DATA_COLLECTION_KEYS)[number];
@@ -113,6 +116,8 @@ const BACKUP_COLLECTION_LABELS: Record<AppDataCollectionKey, string> = {
   historial_redistribuciones_horas: "Historial redistribuciones",
   evaluaciones_desempeno_profesional: "Evaluaciones desempeño",
   alertas_revisadas: "Alertas revisadas",
+  evaluaciones_entregables: "Evaluaciones entregables",
+  preguntas_evaluacion_entregables: "Preguntas evaluación",
 };
 
 type AppDataSlice = Record<AppDataCollectionKey, unknown[]>;
@@ -383,6 +388,8 @@ export default function Configuracion() {
     historial_redistribuciones_horas: data.historial_redistribuciones_horas.length,
     evaluaciones_desempeno_profesional: data.evaluaciones_desempeno_profesional.length,
     alertas_revisadas: data.alertas_revisadas.length,
+    evaluaciones_entregables: data.evaluaciones_entregables.length,
+    preguntas_evaluacion_entregables: data.preguntas_evaluacion_entregables.length,
   };
 
   /* ── export functions ── */
@@ -394,7 +401,7 @@ export default function Configuracion() {
       ...collections,
     };
     downloadBlob(JSON.stringify(payload, null, 2), "valtica_backup.json", "application/json");
-    show("Exportación JSON completada (14 colecciones)", "success");
+    show("Exportación JSON completada (16 colecciones)", "success");
   }, [data, show]);
 
   const exportCSV = useCallback(
@@ -505,6 +512,16 @@ export default function Configuracion() {
       icon: Target,
     },
     { key: "alertas_revisadas", label: BACKUP_COLLECTION_LABELS.alertas_revisadas, icon: Bell },
+    {
+      key: "evaluaciones_entregables",
+      label: BACKUP_COLLECTION_LABELS.evaluaciones_entregables,
+      icon: ClipboardCheck,
+    },
+    {
+      key: "preguntas_evaluacion_entregables",
+      label: BACKUP_COLLECTION_LABELS.preguntas_evaluacion_entregables,
+      icon: ClipboardCheck,
+    },
   ];
 
   return (
