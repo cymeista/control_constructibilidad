@@ -2,6 +2,15 @@ import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router";
 import { useAppData } from "@/context/AppDataContext";
 import { clearAppData, replaceAppData } from "@/persistence/dataRepository";
+import {
+  APP_DATA_BACKUP_VERSION,
+  APP_DATA_COLLECTION_KEYS,
+  BACKUP_COLLECTION_LABELS,
+  backupHasRecognizedData,
+  buildAppDataBackupPayload,
+  normalizeBackupImport,
+  type AppDataCollectionKey,
+} from "@/persistence/appDataBackup";
 import { loadSettings as loadAppSettings, saveSettings as saveAppSettings } from "@/persistence/settingsRepository";
 import SectionHeader from "@/components/SectionHeader";
 import {
@@ -73,66 +82,6 @@ function useSettings() {
   }, []);
 
   return { settings, update };
-}
-
-/* ─────────── Backup JSON (AppData completo) ─────────── */
-
-const BACKUP_VERSION = 4;
-
-/** Colecciones persistidas en `valtica_data_v1` / AppData. */
-const APP_DATA_COLLECTION_KEYS = [
-  "clientes",
-  "profesionales",
-  "pm_internos",
-  "proyectos",
-  "entregables",
-  "asignaciones_horas",
-  "equipo_entregable",
-  "registro_horas",
-  "pipeline",
-  "carga_mensual",
-  "curvas_objetivo_anual",
-  "historial_redistribuciones_horas",
-  "evaluaciones_desempeno_profesional",
-  "alertas_revisadas",
-  "evaluaciones_entregables",
-  "preguntas_evaluacion_entregables",
-] as const;
-
-type AppDataCollectionKey = (typeof APP_DATA_COLLECTION_KEYS)[number];
-
-const BACKUP_COLLECTION_LABELS: Record<AppDataCollectionKey, string> = {
-  clientes: "Clientes",
-  profesionales: "Profesionales",
-  pm_internos: "PM internos",
-  proyectos: "Proyectos",
-  entregables: "Entregables",
-  asignaciones_horas: "Asignaciones de horas",
-  equipo_entregable: "Equipo entregable",
-  registro_horas: "Registro de Horas",
-  pipeline: "Pipeline",
-  carga_mensual: "Carga Mensual",
-  curvas_objetivo_anual: "Curva objetivo anual",
-  historial_redistribuciones_horas: "Historial redistribuciones",
-  evaluaciones_desempeno_profesional: "Evaluaciones desempeño",
-  alertas_revisadas: "Alertas revisadas",
-  evaluaciones_entregables: "Evaluaciones entregables",
-  preguntas_evaluacion_entregables: "Preguntas evaluación",
-};
-
-type AppDataSlice = Record<AppDataCollectionKey, unknown[]>;
-
-function normalizeBackupImport(parsed: Record<string, unknown>): AppDataSlice {
-  const out = {} as AppDataSlice;
-  for (const key of APP_DATA_COLLECTION_KEYS) {
-    const v = parsed[key];
-    out[key] = Array.isArray(v) ? v : [];
-  }
-  return out;
-}
-
-function backupHasRecognizedData(parsed: Record<string, unknown>): boolean {
-  return APP_DATA_COLLECTION_KEYS.some((k) => Array.isArray(parsed[k]));
 }
 
 function warnIfMissingCurvaObjetivo(parsed: Record<string, unknown>): void {
@@ -388,20 +337,16 @@ export default function Configuracion() {
     historial_redistribuciones_horas: data.historial_redistribuciones_horas.length,
     evaluaciones_desempeno_profesional: data.evaluaciones_desempeno_profesional.length,
     alertas_revisadas: data.alertas_revisadas.length,
-    evaluaciones_entregables: data.evaluaciones_entregables.length,
-    preguntas_evaluacion_entregables: data.preguntas_evaluacion_entregables.length,
+    evaluaciones_entregables: (data.evaluaciones_entregables ?? []).length,
+    preguntas_evaluacion_entregables: (data.preguntas_evaluacion_entregables ?? []).length,
   };
 
   /* ── export functions ── */
   const exportAllJSON = useCallback(() => {
-    const collections = normalizeBackupImport(data as unknown as Record<string, unknown>);
-    const payload = {
-      backup_version: BACKUP_VERSION,
-      exported_at: new Date().toISOString(),
-      ...collections,
-    };
+    const payload = buildAppDataBackupPayload(data as unknown as Record<string, unknown>);
     downloadBlob(JSON.stringify(payload, null, 2), "valtica_backup.json", "application/json");
-    show("Exportación JSON completada (16 colecciones)", "success");
+    const n = APP_DATA_COLLECTION_KEYS.length;
+    show(`Exportación JSON completada (${n} colecciones)`, "success");
   }, [data, show]);
 
   const exportCSV = useCallback(
@@ -571,6 +516,11 @@ export default function Configuracion() {
           >
             <FileJson className="h-4 w-4" /> Exportar Todo (JSON)
           </button>
+          <p className="mt-1 text-[10px] leading-snug text-t500">
+            Incluye {APP_DATA_COLLECTION_KEYS.length} colecciones (backup v{APP_DATA_BACKUP_VERSION}), entre ellas{" "}
+            <span className="font-medium text-t700">evaluaciones_entregables</span> con respaldos como metadata y{" "}
+            <span className="font-medium text-t700">preguntas_evaluacion_entregables</span>.
+          </p>
 
           <div className="mt-2 rounded-r8 border border-bdr bg-amber-50/60 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-[.08em] text-amber-900">Depuración</p>
