@@ -1,4 +1,7 @@
 import type { AppRole } from "@/security/localUsers";
+import type { AuthSource } from "@/security/authTypes";
+
+export const MSG_LOGIN_SUPABASE = "Debes iniciar sesión con Supabase.";
 
 export type AppRoute =
   | "/"
@@ -61,6 +64,22 @@ export function canViewRouteForSession(role: AppRole | null, route: AppRoute): b
 /** Crear, editar o eliminar evaluaciones de entregables completados. */
 export function canGestionarEvaluacionEntregable(role: AppRole | null): boolean {
   return role === "ADMIN";
+}
+
+/** Subir snapshot main a Supabase (fase transición: sesión Supabase + rol ADMIN en perfil). */
+export function canUploadAppDataToSupabase(
+  authSource: AuthSource | null,
+  role: AppRole | null,
+): boolean {
+  return authSource === "supabase" && role === "ADMIN";
+}
+
+/** Cargar snapshot desde Supabase (usuario Supabase autenticado con perfil válido). */
+export function canLoadAppDataFromSupabase(
+  authSource: AuthSource | null,
+  role: AppRole | null,
+): boolean {
+  return authSource === "supabase" && role != null;
 }
 
 /** @deprecated Preferir `canViewRouteForSession`. Mantenido para compatibilidad con chequeos `can*(role)`. */

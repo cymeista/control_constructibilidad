@@ -30,8 +30,8 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (!cachedClient) {
     cachedClient = createClient(getSupabaseUrl()!, getSupabasePublishableKey()!, {
       auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+        persistSession: true,
+        autoRefreshToken: true,
       },
     });
   }

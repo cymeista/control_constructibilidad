@@ -53,6 +53,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useAuth } from "@/security/AuthContext";
+import {
+  canLoadAppDataFromSupabase,
+  canUploadAppDataToSupabase,
+  MSG_LOGIN_SUPABASE,
+} from "@/security/permissions";
 import PreviewMigracionEquipoEntregablePanel from "@/components/PreviewMigracionEquipoEntregablePanel";
 
 /* ─────────── Settings Hook ─────────── */
@@ -314,7 +319,17 @@ function SettingsCard({
 
 export default function Configuracion() {
   const navigate = useNavigate();
-  const { role } = useAuth();
+  const {
+    role,
+    authSource,
+    user,
+    displayName,
+    profileError,
+    isSupabaseSession,
+    logoutSupabase,
+  } = useAuth();
+  const canSupabaseUpload = canUploadAppDataToSupabase(authSource, role);
+  const canSupabaseLoad = canLoadAppDataFromSupabase(authSource, role);
   const data = useAppData();
   const { aplicarMigracionEquipoEntregable } = data;
   const { settings, update } = useSettings();
@@ -466,13 +481,20 @@ export default function Configuracion() {
         return;
       }
       setSupabaseMeta(result.meta);
-      show("Conexión con Supabase correcta.", "success");
+      const rlsHint = isSupabaseSession
+        ? " Sesión Supabase activa."
+        : " Sin sesión: lectura/escritura pueden estar limitadas por RLS.";
+      show(`Conexión con Supabase correcta.${rlsHint}`, "success");
     } finally {
       setSupabaseBusy(false);
     }
-  }, [show]);
+  }, [show, isSupabaseSession]);
 
   const handleSupabaseUpload = useCallback(async () => {
+    if (!canSupabaseUpload) {
+      show(MSG_LOGIN_SUPABASE + " Se requiere rol ADMIN en app_user_profiles.", "error");
+      return;
+    }
     if (
       !window.confirm(
         "Esto reemplazará el snapshot main en Supabase con los datos actuales de esta app.",
@@ -495,9 +517,13 @@ export default function Configuracion() {
     } finally {
       setSupabaseBusy(false);
     }
-  }, [data, show]);
+  }, [data, show, canSupabaseUpload]);
 
   const handleSupabaseLoad = useCallback(async () => {
+    if (!canSupabaseLoad) {
+      show(MSG_LOGIN_SUPABASE, "error");
+      return;
+    }
     if (
       !window.confirm(
         "Esto reemplazará los datos actuales en pantalla/localStorage con el snapshot de Supabase.",
@@ -519,7 +545,7 @@ export default function Configuracion() {
     } finally {
       setSupabaseBusy(false);
     }
-  }, [show]);
+  }, [show, canSupabaseLoad]);
 
   const formatSupabaseUpdatedAt = (iso: string | null) => {
     if (!iso) return "—";
@@ -740,7 +766,7 @@ export default function Configuracion() {
         <SettingsCard title="Supabase" icon={Cloud}>
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between rounded-r8 border border-bdr bg-[#F7F8FA] px-3 py-2">
-              <span className="text-[12px] text-t600">Estado</span>
+              <span className="text-[12px] text-t600">Conexión</span>
               <span
                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                   supabaseConfigured
@@ -749,6 +775,25 @@ export default function Configuracion() {
                 }`}
               >
                 {supabaseConfigured ? "Configurado (.env.local)" : "No configurado"}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between rounded-r8 border border-bdr bg-[#F7F8FA] px-3 py-2">
+              <span className="text-[12px] text-t600">Sesión Supabase</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  isSupabaseSession && role && !profileError
+                    ? "bg-indigo-100 text-indigo-800"
+                    : isSupabaseSession
+                      ? "bg-amber-100 text-amber-900"
+                      : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {isSupabaseSession && role && !profileError
+                  ? "Conectado"
+                  : isSupabaseSession
+                    ? "Sin perfil válido"
+                    : "Desconectado"}
               </span>
             </div>
 
@@ -762,6 +807,12 @@ export default function Configuracion() {
             ) : (
               <>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-t500">Email</dt>
+                  <dd className="break-all font-mono text-t800">{user ?? "—"}</dd>
+                  <dt className="text-t500">Nombre</dt>
+                  <dd className="text-t800">{displayName ?? "—"}</dd>
+                  <dt className="text-t500">Rol (perfil)</dt>
+                  <dd className="font-semibold text-t800">{role ?? "—"}</dd>
                   <dt className="text-t500">Última actualización</dt>
                   <dd className="font-mono text-t800">{formatSupabaseUpdatedAt(supabaseMeta?.updated_at ?? null)}</dd>
                   <dt className="text-t500">backup_version</dt>
@@ -771,9 +822,15 @@ export default function Configuracion() {
                   <dt className="text-t500">Snapshot</dt>
                   <dd className="font-mono text-t800">app_data_snapshots / main</dd>
                 </dl>
+                {profileError ? (
+                  <p className="rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                    {profileError}
+                  </p>
+                ) : null}
                 <p className="text-[10px] leading-snug text-t500">
-                  Modo híbrido: sin sincronización automática. localStorage no se borra al subir; se
-                  reemplaza solo con confirmación al cargar desde Supabase.
+                  Modo híbrido: sin sincronización automática. localStorage no se borra al subir. Subir
+                  snapshot requiere sesión Supabase ADMIN; cargar requiere sesión Supabase con perfil
+                  válido. Políticas dev anon siguen activas en esta fase.
                 </p>
                 <div className="flex flex-col gap-2">
                   <button
@@ -786,7 +843,8 @@ export default function Configuracion() {
                   </button>
                   <button
                     type="button"
-                    disabled={supabaseBusy}
+                    disabled={supabaseBusy || !canSupabaseUpload}
+                    title={!canSupabaseUpload ? MSG_LOGIN_SUPABASE : undefined}
                     className="inline-flex items-center justify-center gap-2 rounded-r8 bg-[#4F46E5] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#3730A3] disabled:opacity-50"
                     onClick={() => void handleSupabaseUpload()}
                   >
@@ -794,12 +852,23 @@ export default function Configuracion() {
                   </button>
                   <button
                     type="button"
-                    disabled={supabaseBusy}
+                    disabled={supabaseBusy || !canSupabaseLoad}
+                    title={!canSupabaseLoad ? MSG_LOGIN_SUPABASE : undefined}
                     className="inline-flex items-center justify-center gap-2 rounded-r8 border border-amber-500/50 bg-amber-50 px-4 py-2 text-[12px] font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
                     onClick={() => void handleSupabaseLoad()}
                   >
                     <Download className="h-4 w-4" /> Cargar datos desde Supabase
                   </button>
+                  {isSupabaseSession ? (
+                    <button
+                      type="button"
+                      disabled={supabaseBusy}
+                      className="inline-flex items-center justify-center gap-2 rounded-r8 border border-bdr bg-white px-4 py-2 text-[12px] font-semibold text-t700 hover:bg-[#F7F8FA] disabled:opacity-50"
+                      onClick={() => void logoutSupabase()}
+                    >
+                      Cerrar sesión Supabase
+                    </button>
+                  ) : null}
                 </div>
               </>
             )}
