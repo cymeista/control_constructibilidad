@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useAppData } from "@/context/AppDataContext";
 import { clearAppData, replaceAppData } from "@/persistence/dataRepository";
@@ -12,6 +12,14 @@ import {
   type AppDataCollectionKey,
 } from "@/persistence/appDataBackup";
 import { loadSettings as loadAppSettings, saveSettings as saveAppSettings } from "@/persistence/settingsRepository";
+import {
+  fetchSupabaseSnapshotMeta,
+  isSupabaseConfigured,
+  loadAppDataFromSupabase,
+  testSupabaseConnection,
+  uploadLocalAppDataToSupabase,
+  type SupabaseSnapshotMeta,
+} from "@/persistence/supabaseAppDataRepository";
 import SectionHeader from "@/components/SectionHeader";
 import {
   Download,
@@ -320,6 +328,22 @@ export default function Configuracion() {
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const [supabaseUrl, setSupabaseUrl] = useState("");
   const [supabaseKey, setSupabaseKey] = useState("");
+  const supabaseConfigured = isSupabaseConfigured();
+  const [supabaseMeta, setSupabaseMeta] = useState<SupabaseSnapshotMeta | null>(null);
+  const [supabaseBusy, setSupabaseBusy] = useState(false);
+
+  const refreshSupabaseMeta = useCallback(async () => {
+    if (!supabaseConfigured) {
+      setSupabaseMeta(null);
+      return;
+    }
+    const meta = await fetchSupabaseSnapshotMeta();
+    setSupabaseMeta(meta);
+  }, [supabaseConfigured]);
+
+  useEffect(() => {
+    void refreshSupabaseMeta();
+  }, [refreshSupabaseMeta]);
 
   /* ── stats ── */
   const stats: Record<AppDataCollectionKey, number> = {
@@ -432,6 +456,77 @@ export default function Configuracion() {
     show("Datos de ejemplo restaurados. Recargando...", "success");
     setTimeout(() => window.location.reload(), 1500);
   }, [show]);
+
+  const handleSupabaseTest = useCallback(async () => {
+    setSupabaseBusy(true);
+    try {
+      const result = await testSupabaseConnection();
+      if (!result.ok) {
+        show(`Supabase: ${result.error}`, "error");
+        return;
+      }
+      setSupabaseMeta(result.meta);
+      show("Conexión con Supabase correcta.", "success");
+    } finally {
+      setSupabaseBusy(false);
+    }
+  }, [show]);
+
+  const handleSupabaseUpload = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Esto reemplazará el snapshot main en Supabase con los datos actuales de esta app.",
+      )
+    ) {
+      return;
+    }
+    setSupabaseBusy(true);
+    try {
+      const result = await uploadLocalAppDataToSupabase(data as unknown as Record<string, unknown>);
+      if (!result.ok) {
+        show(`Error al subir a Supabase: ${result.error}`, "error");
+        return;
+      }
+      setSupabaseMeta(result.meta);
+      show(
+        `Datos locales subidos a Supabase (backup v${result.meta.backup_version ?? "—"}). localStorage no se borró.`,
+        "success",
+      );
+    } finally {
+      setSupabaseBusy(false);
+    }
+  }, [data, show]);
+
+  const handleSupabaseLoad = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Esto reemplazará los datos actuales en pantalla/localStorage con el snapshot de Supabase.",
+      )
+    ) {
+      return;
+    }
+    setSupabaseBusy(true);
+    try {
+      const result = await loadAppDataFromSupabase();
+      if (!result.ok) {
+        show(`Error al cargar desde Supabase: ${result.error}`, "error");
+        return;
+      }
+      replaceAppData(result.data);
+      setSupabaseMeta(result.meta);
+      show("Snapshot de Supabase aplicado. Recargando...", "success");
+      setTimeout(() => window.location.reload(), 1500);
+    } finally {
+      setSupabaseBusy(false);
+    }
+  }, [show]);
+
+  const formatSupabaseUpdatedAt = (iso: string | null) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString("es-CL");
+  };
 
   /* ── entity export buttons (CSV + vista previa JSON) ── */
   const exportButtons: { key: AppDataCollectionKey; label: string; icon: React.ElementType }[] = [
@@ -638,6 +733,76 @@ export default function Configuracion() {
             >
               <Trash2 className="h-4 w-4" /> Limpiar Todo
             </button>
+          </div>
+        </SettingsCard>
+
+        {/* ── Card: Supabase (híbrido, acciones manuales) ── */}
+        <SettingsCard title="Supabase" icon={Cloud}>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between rounded-r8 border border-bdr bg-[#F7F8FA] px-3 py-2">
+              <span className="text-[12px] text-t600">Estado</span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  supabaseConfigured
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {supabaseConfigured ? "Configurado (.env.local)" : "No configurado"}
+              </span>
+            </div>
+
+            {!supabaseConfigured ? (
+              <p className="text-[11px] leading-snug text-t500">
+                Define <span className="font-mono text-t700">VITE_SUPABASE_URL</span> y{" "}
+                <span className="font-mono text-t700">VITE_SUPABASE_PUBLISHABLE_KEY</span> en{" "}
+                <span className="font-mono text-t700">.env.local</span>. La app sigue usando localStorage
+                como respaldo.
+              </p>
+            ) : (
+              <>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-t500">Última actualización</dt>
+                  <dd className="font-mono text-t800">{formatSupabaseUpdatedAt(supabaseMeta?.updated_at ?? null)}</dd>
+                  <dt className="text-t500">backup_version</dt>
+                  <dd className="font-mono text-t800">
+                    {supabaseMeta?.backup_version != null ? supabaseMeta.backup_version : "—"}
+                  </dd>
+                  <dt className="text-t500">Snapshot</dt>
+                  <dd className="font-mono text-t800">app_data_snapshots / main</dd>
+                </dl>
+                <p className="text-[10px] leading-snug text-t500">
+                  Modo híbrido: sin sincronización automática. localStorage no se borra al subir; se
+                  reemplaza solo con confirmación al cargar desde Supabase.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={supabaseBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-r8 border border-bdr bg-white px-4 py-2 text-[12px] font-semibold text-t700 hover:bg-[#F7F8FA] disabled:opacity-50"
+                    onClick={() => void handleSupabaseTest()}
+                  >
+                    <Cloud className="h-4 w-4" /> Probar conexión
+                  </button>
+                  <button
+                    type="button"
+                    disabled={supabaseBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-r8 bg-[#4F46E5] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[#3730A3] disabled:opacity-50"
+                    onClick={() => void handleSupabaseUpload()}
+                  >
+                    <Upload className="h-4 w-4" /> Subir datos locales a Supabase
+                  </button>
+                  <button
+                    type="button"
+                    disabled={supabaseBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-r8 border border-amber-500/50 bg-amber-50 px-4 py-2 text-[12px] font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                    onClick={() => void handleSupabaseLoad()}
+                  >
+                    <Download className="h-4 w-4" /> Cargar datos desde Supabase
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </SettingsCard>
 
