@@ -3,6 +3,7 @@ import { es } from "date-fns/locale";
 import { Menu } from "lucide-react";
 import { Link } from "react-router";
 import { useAuth } from "@/security/AuthContext";
+import AppDataPersistenceBadge from "@/components/AppDataPersistenceBadge";
 
 interface PageHeaderProps {
   onOpenMobileMenu?: () => void;
@@ -51,7 +52,8 @@ export default function PageHeader({ onOpenMobileMenu }: PageHeaderProps) {
           <span className="max-w-[7.5rem] truncate rounded-full border border-bdr bg-surface2 px-2.5 py-1 text-[10px] font-medium text-t600 sm:max-w-none sm:px-3 sm:py-1.5 sm:text-[11px]">
             {monthStr}
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-bdr bg-surface2 px-2.5 py-1 text-[10px] font-semibold text-t700 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-[11px]">
+          <AppDataPersistenceBadge compact />
+          <span className="hidden items-center gap-1.5 rounded-full border border-bdr bg-surface2 px-2.5 py-1 text-[10px] font-semibold text-t700 sm:inline-flex sm:gap-2 sm:px-3 sm:py-1.5 sm:text-[11px]">
             <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-green shadow-[0_0_0_2px_rgba(4,120,87,0.25)] animate-blink" />
             LIVE
           </span>

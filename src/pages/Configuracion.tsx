@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { useAppData } from "@/context/AppDataContext";
+import { useAppData, useAppDataPersistence } from "@/context/AppDataContext";
+import AppDataPersistenceBadge from "@/components/AppDataPersistenceBadge";
 import { clearAppData, replaceAppData } from "@/persistence/dataRepository";
 import {
   APP_DATA_BACKUP_VERSION,
@@ -13,12 +14,10 @@ import {
 } from "@/persistence/appDataBackup";
 import { loadSettings as loadAppSettings, saveSettings as saveAppSettings } from "@/persistence/settingsRepository";
 import {
-  fetchSupabaseSnapshotMeta,
   isSupabaseConfigured,
   loadAppDataFromSupabase,
   testSupabaseConnection,
   uploadLocalAppDataToSupabase,
-  type SupabaseSnapshotMeta,
 } from "@/persistence/supabaseAppDataRepository";
 import SectionHeader from "@/components/SectionHeader";
 import {
@@ -331,7 +330,8 @@ export default function Configuracion() {
   const canSupabaseUpload = canUploadAppDataToSupabase(authSource, role);
   const canSupabaseLoad = canLoadAppDataFromSupabase(authSource, role);
   const data = useAppData();
-  const { aplicarMigracionEquipoEntregable } = data;
+  const { aplicarMigracionEquipoEntregable, importAppDataBackup } = data;
+  const pSync = useAppDataPersistence();
   const { settings, update } = useSettings();
   const { toasts, show } = useToast();
 
@@ -344,21 +344,11 @@ export default function Configuracion() {
   const [supabaseUrl, setSupabaseUrl] = useState("");
   const [supabaseKey, setSupabaseKey] = useState("");
   const supabaseConfigured = isSupabaseConfigured();
-  const [supabaseMeta, setSupabaseMeta] = useState<SupabaseSnapshotMeta | null>(null);
   const [supabaseBusy, setSupabaseBusy] = useState(false);
 
-  const refreshSupabaseMeta = useCallback(async () => {
-    if (!supabaseConfigured) {
-      setSupabaseMeta(null);
-      return;
-    }
-    const meta = await fetchSupabaseSnapshotMeta();
-    setSupabaseMeta(meta);
-  }, [supabaseConfigured]);
-
   useEffect(() => {
-    void refreshSupabaseMeta();
-  }, [refreshSupabaseMeta]);
+    void pSync.refreshSnapshotMeta();
+  }, [pSync.refreshSnapshotMeta]);
 
   /* ── stats ── */
   const stats: Record<AppDataCollectionKey, number> = {
@@ -445,13 +435,17 @@ export default function Configuracion() {
         return;
       }
       const normalized = normalizeBackupImport(raw);
-      replaceAppData(normalized);
-      show("Datos importados correctamente. Recarga la página para aplicar.", "success");
-      setTimeout(() => window.location.reload(), 1500);
+      importAppDataBackup(normalized);
+      const hint = canSupabaseUpload
+        ? " Datos en pantalla y localStorage. Se sincronizará a Supabase (autosave o «Guardar ahora»)."
+        : " Solo respaldo local: inicia sesión ADMIN en Supabase para subir el snapshot.";
+      show(`Datos importados correctamente.${hint}`, "success");
+      setImportPreview(null);
+      setImportFile(null);
     } catch {
       show("Error al importar datos", "error");
     }
-  }, [importPreview, show]);
+  }, [importPreview, show, importAppDataBackup, canSupabaseUpload]);
 
   /* ── reset functions ── */
   const handleClearAll = useCallback(() => {
@@ -480,7 +474,7 @@ export default function Configuracion() {
         show(`Supabase: ${result.error}`, "error");
         return;
       }
-      setSupabaseMeta(result.meta);
+      void pSync.refreshSnapshotMeta();
       const rlsHint = isSupabaseSession
         ? " Sesión Supabase activa."
         : " Sin sesión: lectura/escritura pueden estar limitadas por RLS.";
@@ -488,7 +482,7 @@ export default function Configuracion() {
     } finally {
       setSupabaseBusy(false);
     }
-  }, [show, isSupabaseSession]);
+  }, [show, isSupabaseSession, pSync.refreshSnapshotMeta]);
 
   const handleSupabaseUpload = useCallback(async () => {
     if (!canSupabaseUpload) {
@@ -509,7 +503,7 @@ export default function Configuracion() {
         show(`Error al subir a Supabase: ${result.error}`, "error");
         return;
       }
-      setSupabaseMeta(result.meta);
+      pSync.acknowledgeSupabaseSnapshotSynced(result.meta);
       show(
         `Datos locales subidos a Supabase (backup v${result.meta.backup_version ?? "—"}). localStorage no se borró.`,
         "success",
@@ -517,7 +511,7 @@ export default function Configuracion() {
     } finally {
       setSupabaseBusy(false);
     }
-  }, [data, show, canSupabaseUpload]);
+  }, [data, show, canSupabaseUpload, pSync]);
 
   const handleSupabaseLoad = useCallback(async () => {
     if (!canSupabaseLoad) {
@@ -539,7 +533,6 @@ export default function Configuracion() {
         return;
       }
       replaceAppData(result.data);
-      setSupabaseMeta(result.meta);
       show("Snapshot de Supabase aplicado. Recargando...", "success");
       setTimeout(() => window.location.reload(), 1500);
     } finally {
@@ -806,7 +799,15 @@ export default function Configuracion() {
               </p>
             ) : (
               <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <AppDataPersistenceBadge />
+                  <span className="text-[10px] text-t500">Estado de sincronización</span>
+                </div>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-t500">Fuente activa</dt>
+                  <dd className="font-semibold text-t800">
+                    {pSync.dataSource === "supabase" ? "Supabase (snapshot main)" : "Respaldo local"}
+                  </dd>
                   <dt className="text-t500">Email</dt>
                   <dd className="break-all font-mono text-t800">{user ?? "—"}</dd>
                   <dt className="text-t500">Nombre</dt>
@@ -814,25 +815,68 @@ export default function Configuracion() {
                   <dt className="text-t500">Rol (perfil)</dt>
                   <dd className="font-semibold text-t800">{role ?? "—"}</dd>
                   <dt className="text-t500">Última actualización</dt>
-                  <dd className="font-mono text-t800">{formatSupabaseUpdatedAt(supabaseMeta?.updated_at ?? null)}</dd>
+                  <dd className="font-mono text-t800">
+                    {formatSupabaseUpdatedAt(pSync.snapshotMeta?.updated_at ?? null)}
+                  </dd>
                   <dt className="text-t500">backup_version</dt>
                   <dd className="font-mono text-t800">
-                    {supabaseMeta?.backup_version != null ? supabaseMeta.backup_version : "—"}
+                    {pSync.snapshotMeta?.backup_version != null ? pSync.snapshotMeta.backup_version : "—"}
                   </dd>
                   <dt className="text-t500">Snapshot</dt>
                   <dd className="font-mono text-t800">app_data_snapshots / main</dd>
                 </dl>
+                {pSync.localFallbackMessage ? (
+                  <p className="rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                    {pSync.localFallbackMessage}
+                  </p>
+                ) : null}
+                {pSync.writeBlockedHint ? (
+                  <p className="rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                    {pSync.writeBlockedHint}
+                  </p>
+                ) : null}
+                {pSync.saveError ? (
+                  <p className="rounded-r8 border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-800">
+                    Error al guardar en Supabase: {pSync.saveError}
+                  </p>
+                ) : null}
                 {profileError ? (
                   <p className="rounded-r8 border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
                     {profileError}
                   </p>
                 ) : null}
                 <p className="text-[10px] leading-snug text-t500">
-                  Modo híbrido: sin sincronización automática. localStorage no se borra al subir. Subir
-                  snapshot requiere sesión Supabase ADMIN; cargar requiere sesión Supabase con perfil
-                  válido. Políticas dev anon siguen activas en esta fase.
+                  Supabase-first: al abrir la app se carga el snapshot main; los cambios de ADMIN se guardan
+                  en localStorage al instante y en Supabase con debounce. localStorage no se borra. Acciones
+                  manuales siguen disponibles abajo.
                 </p>
                 <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={supabaseBusy || !canSupabaseUpload}
+                    title={!canSupabaseUpload ? MSG_LOGIN_SUPABASE : undefined}
+                    className="inline-flex items-center justify-center gap-2 rounded-r8 border border-indigo-300 bg-indigo-50 px-4 py-2 text-[12px] font-semibold text-indigo-900 hover:bg-indigo-100 disabled:opacity-50"
+                    onClick={() => void pSync.saveNowToSupabase().then((ok) => show(ok ? "Guardado en Supabase." : "No se pudo guardar.", ok ? "success" : "error"))}
+                  >
+                    <Cloud className="h-4 w-4" /> Guardar ahora en Supabase
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      supabaseBusy ||
+                      !canSupabaseUpload ||
+                      (!pSync.pendingSupabaseSave && pSync.savePhase !== "error")
+                    }
+                    title={!canSupabaseUpload ? MSG_LOGIN_SUPABASE : undefined}
+                    className="inline-flex items-center justify-center gap-2 rounded-r8 border border-bdr bg-white px-4 py-2 text-[12px] font-semibold text-t700 hover:bg-[#F7F8FA] disabled:opacity-50"
+                    onClick={() =>
+                      void pSync.retryPendingSupabaseSave().then((ok) =>
+                        show(ok ? "Guardado en Supabase." : "Reintento fallido.", ok ? "success" : "error"),
+                      )
+                    }
+                  >
+                    <RotateCcw className="h-4 w-4" /> Reintentar guardado pendiente
+                  </button>
                   <button
                     type="button"
                     disabled={supabaseBusy}

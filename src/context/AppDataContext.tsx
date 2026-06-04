@@ -1,6 +1,24 @@
 import type { ReactNode } from "react";
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { loadAppData, saveAppData } from "@/persistence/dataRepository";
+import type { AppDataBackupSlice } from "@/persistence/appDataBackup";
+import { normalizeBackupImport } from "@/persistence/appDataBackup";
+import {
+  APP_DATA_AUTOSAVE_DEBOUNCE_MS,
+  hashAppDataPayload,
+  LOCAL_FALLBACK_MSG,
+  persistAppDataToSupabase,
+  tryBootstrapFromSupabase,
+  type AppDataPersistenceState,
+  type AppDataSource,
+} from "@/persistence/appDataPersistence";
+import {
+  fetchSupabaseSnapshotMeta,
+  isSupabaseConfigured,
+  type SupabaseSnapshotMeta,
+} from "@/persistence/supabaseAppDataRepository";
+import { useAuth } from "@/security/AuthContext";
+import { canUploadAppDataToSupabase } from "@/security/permissions";
 import {
   aplicarMigracionEquipoEntregableDesdePreview,
   type ResumenAplicacionMigracionEquipo,
@@ -613,7 +631,18 @@ interface AppDataContextValue extends AppData {
     estado: EstadoAlertaRevisada;
     revisado_por: string;
   }) => void;
+  /** Import JSON: hidrata AppData, localStorage y marca guardado Supabase pendiente (ADMIN). */
+  importAppDataBackup: (slice: AppDataBackupSlice) => void;
+  persistence: AppDataPersistenceState & {
+    saveNowToSupabase: () => Promise<boolean>;
+    retryPendingSupabaseSave: () => Promise<boolean>;
+    refreshSnapshotMeta: () => Promise<void>;
+    /** Tras subida manual desde Configuración, alinea hash local con Supabase. */
+    acknowledgeSupabaseSnapshotSynced: (meta: SupabaseSnapshotMeta) => void;
+  };
 }
+
+export type { AppDataPersistenceState, AppDataSource };
 
 /* ─────────────── Mock Data ─────────────── */
 
@@ -1074,9 +1103,8 @@ export function getAppDataDemoSeed(): AppData {
   };
 }
 
-function getInitialData(): AppData {
+function hydrateAppDataFromRaw(raw: Partial<AppData>): AppData {
   const fallback = createEmptyAppData();
-  const raw = loadAppData(fallback);
   const normalizedProyectos = (Array.isArray(raw.proyectos) ? raw.proyectos : fallback.proyectos).map(
     normalizeProyectoRow,
   );
@@ -1131,6 +1159,16 @@ function getInitialData(): AppData {
   };
 }
 
+function getInitialData(): AppData {
+  const fallback = createEmptyAppData();
+  const raw = loadAppData(fallback);
+  return hydrateAppDataFromRaw(raw);
+}
+
+export function hydrateAppDataFromBackupSlice(slice: AppDataBackupSlice): AppData {
+  return hydrateAppDataFromRaw(normalizeBackupImport(slice as unknown as Record<string, unknown>) as Partial<AppData>);
+}
+
 const TARIFA_PROYECTO_KEYS = ["tarifa_l2", "tarifa_p4", "tarifa_p3", "tarifa_p2"] as const;
 
 /** Bloque 4.3: el patch incluye al menos una tarifa distinta al valor actual. */
@@ -1150,12 +1188,248 @@ function profesionalCargoChanged(prev: Profesional | undefined, patch: Partial<P
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
+const WRITE_BLOCKED_HINT =
+  "Los cambios se guardan solo en respaldo local. Inicia sesión como ADMIN en Supabase para sincronizar.";
+
+const INITIAL_PERSISTENCE: AppDataPersistenceState = {
+  bootstrapDone: false,
+  dataSource: "local",
+  savePhase: "loading_supabase",
+  snapshotMeta: null,
+  localFallbackMessage: null,
+  saveError: null,
+  pendingSupabaseSave: false,
+  writeBlockedHint: null,
+};
+
 export function AppDataProvider({ children }: { children: ReactNode }) {
+  const { authSource, role } = useAuth();
   const [data, setData] = useState<AppData>(getInitialData);
+  const [persistence, setPersistence] = useState<AppDataPersistenceState>(INITIAL_PERSISTENCE);
+
+  const dataRef = useRef(data);
+  const suppressAutosaveRef = useRef(true);
+  const lastSyncedHashRef = useRef<string | null>(null);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInFlightRef = useRef(false);
+
+  const canWriteSupabase = canUploadAppDataToSupabase(authSource, role);
 
   useEffect(() => {
-    saveAppData(data);
+    dataRef.current = data;
   }, [data]);
+
+  const refreshSnapshotMeta = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      setPersistence((p) => ({ ...p, snapshotMeta: null }));
+      return;
+    }
+    const meta = await fetchSupabaseSnapshotMeta();
+    setPersistence((prev) => ({ ...prev, snapshotMeta: meta }));
+  }, []);
+
+  const runSupabaseSave = useCallback(async (): Promise<boolean> => {
+    if (!canWriteSupabase) return false;
+    if (saveInFlightRef.current) return false;
+
+    saveInFlightRef.current = true;
+    setPersistence((p) => ({
+      ...p,
+      savePhase: "saving",
+      saveError: null,
+      pendingSupabaseSave: true,
+    }));
+
+    const payload = dataRef.current as unknown as Record<string, unknown>;
+    const res = await persistAppDataToSupabase(payload);
+
+    saveInFlightRef.current = false;
+
+    if (!res.ok) {
+      setPersistence((p) => ({
+        ...p,
+        savePhase: "error",
+        saveError: res.error,
+        pendingSupabaseSave: true,
+      }));
+      return false;
+    }
+
+    lastSyncedHashRef.current = hashAppDataPayload(payload);
+    setPersistence((p) => ({
+      ...p,
+      savePhase: "saved",
+      saveError: null,
+      pendingSupabaseSave: false,
+      snapshotMeta: res.meta,
+      dataSource: "supabase",
+      writeBlockedHint: null,
+    }));
+    return true;
+  }, [canWriteSupabase]);
+
+  const saveNowToSupabase = useCallback(async () => {
+    return runSupabaseSave();
+  }, [runSupabaseSave]);
+
+  const retryPendingSupabaseSave = useCallback(async () => {
+    return runSupabaseSave();
+  }, [runSupabaseSave]);
+
+  const acknowledgeSupabaseSnapshotSynced = useCallback((meta: SupabaseSnapshotMeta) => {
+    lastSyncedHashRef.current = hashAppDataPayload(dataRef.current as unknown as Record<string, unknown>);
+    setPersistence((p) => ({
+      ...p,
+      savePhase: "saved",
+      saveError: null,
+      pendingSupabaseSave: false,
+      snapshotMeta: meta,
+      dataSource: "supabase",
+      localFallbackMessage: null,
+    }));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      if (!isSupabaseConfigured()) {
+        const localHash = hashAppDataPayload(dataRef.current as unknown as Record<string, unknown>);
+        lastSyncedHashRef.current = localHash;
+        suppressAutosaveRef.current = false;
+        setPersistence({
+          bootstrapDone: true,
+          dataSource: "local",
+          savePhase: "local_fallback",
+          snapshotMeta: null,
+          localFallbackMessage: LOCAL_FALLBACK_MSG,
+          saveError: null,
+          pendingSupabaseSave: false,
+          writeBlockedHint: canWriteSupabase ? null : WRITE_BLOCKED_HINT,
+        });
+        return;
+      }
+
+      setPersistence((p) => ({ ...p, savePhase: "loading_supabase", bootstrapDone: false }));
+
+      const remote = await tryBootstrapFromSupabase();
+      if (cancelled) return;
+
+      if (remote.ok) {
+        const hydrated = hydrateAppDataFromBackupSlice(remote.slice);
+        setData(hydrated);
+        saveAppData(hydrated);
+        const h = hashAppDataPayload(hydrated as unknown as Record<string, unknown>);
+        lastSyncedHashRef.current = h;
+        suppressAutosaveRef.current = false;
+        setPersistence({
+          bootstrapDone: true,
+          dataSource: "supabase",
+          savePhase: "connected",
+          snapshotMeta: remote.meta,
+          localFallbackMessage: null,
+          saveError: null,
+          pendingSupabaseSave: false,
+          writeBlockedHint: canWriteSupabase ? null : WRITE_BLOCKED_HINT,
+        });
+        return;
+      }
+
+      const localHash = hashAppDataPayload(dataRef.current as unknown as Record<string, unknown>);
+      lastSyncedHashRef.current = localHash;
+      suppressAutosaveRef.current = false;
+      setPersistence({
+        bootstrapDone: true,
+        dataSource: "local",
+        savePhase: "local_fallback",
+        snapshotMeta: null,
+        localFallbackMessage: LOCAL_FALLBACK_MSG,
+        saveError: null,
+        pendingSupabaseSave: false,
+        writeBlockedHint: canWriteSupabase ? null : WRITE_BLOCKED_HINT,
+      });
+    };
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+    // Solo al montar; canWriteSupabase se actualiza después sin re-bootstrap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!persistence.bootstrapDone) return;
+    saveAppData(data);
+  }, [data, persistence.bootstrapDone]);
+
+  useEffect(() => {
+    if (!persistence.bootstrapDone) return;
+    if (suppressAutosaveRef.current) return;
+
+    const hash = hashAppDataPayload(data as unknown as Record<string, unknown>);
+    if (hash === lastSyncedHashRef.current) return;
+
+    if (!isSupabaseConfigured()) {
+      setPersistence((p) => ({
+        ...p,
+        savePhase: "local_fallback",
+        localFallbackMessage: LOCAL_FALLBACK_MSG,
+        writeBlockedHint: WRITE_BLOCKED_HINT,
+      }));
+      return;
+    }
+
+    if (!canWriteSupabase) {
+      setPersistence((p) => ({
+        ...p,
+        savePhase: "local_fallback",
+        pendingSupabaseSave: false,
+        writeBlockedHint: WRITE_BLOCKED_HINT,
+      }));
+      return;
+    }
+
+    setPersistence((p) => ({
+      ...p,
+      savePhase: "pending",
+      pendingSupabaseSave: true,
+      writeBlockedHint: null,
+    }));
+
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void runSupabaseSave();
+    }, APP_DATA_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [data, persistence.bootstrapDone, canWriteSupabase, runSupabaseSave]);
+
+  const importAppDataBackup = useCallback(
+    (slice: AppDataBackupSlice) => {
+      const hydrated = hydrateAppDataFromBackupSlice(slice);
+      suppressAutosaveRef.current = true;
+      setData(hydrated);
+      saveAppData(hydrated);
+      lastSyncedHashRef.current = null;
+      suppressAutosaveRef.current = false;
+      setPersistence((p) => ({
+        ...p,
+        dataSource: "local",
+        savePhase: canWriteSupabase ? "pending" : "local_fallback",
+        pendingSupabaseSave: canWriteSupabase,
+        localFallbackMessage: canWriteSupabase ? null : LOCAL_FALLBACK_MSG,
+        writeBlockedHint: canWriteSupabase ? null : WRITE_BLOCKED_HINT,
+      }));
+    },
+    [canWriteSupabase],
+  );
 
   const mutate = useCallback(<K extends keyof AppData>(
     key: K,
@@ -2274,9 +2548,23 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     deleteEvaluacionEntregable: evaluacionesEntregablesCrud.delete,
     addPreguntaEvaluacionEntregable,
     marcarAlertaRevisada,
+    importAppDataBackup,
+    persistence: {
+      ...persistence,
+      saveNowToSupabase,
+      retryPendingSupabaseSave,
+      refreshSnapshotMeta,
+      acknowledgeSupabaseSnapshotSynced,
+    },
   };
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
+}
+
+export function useAppDataPersistence() {
+  const ctx = useContext(AppDataContext);
+  if (!ctx) throw new Error("useAppDataPersistence must be used within AppDataProvider");
+  return ctx.persistence;
 }
 
 export type { HistorialRedistribucionHoras, HorasPorCategoria } from "@/entregables/redistribucionHorasEntregable";
