@@ -1,25 +1,7 @@
 import { z } from "zod";
-import {
-  dateToUtcEpoch,
-  ENTREGABLE_SEGUIMIENTO_YEAR_MAX,
-  ENTREGABLE_SEGUIMIENTO_YEAR_MIN,
-} from "@/entregables/entregableSeguimiento";
+import { refineEntregableFechas } from "@/entregables/entregableFechasValidation";
 
 /* ─── Entity Schemas ─── */
-
-const MSG_ENTREGABLE_FECHA_ISO = `Fecha inválida o fuera de rango (${ENTREGABLE_SEGUIMIENTO_YEAR_MIN}–${ENTREGABLE_SEGUIMIENTO_YEAR_MAX}). Use AAAA-MM-DD con año de 4 dígitos.`;
-
-function refineEntregableFechaCampo(
-  val: string | null | undefined,
-  path: "fecha_inicio" | "fecha_termino" | "fecha_revA" | "fecha_revB" | "fecha_revP",
-  ctx: z.RefinementCtx,
-) {
-  const s = (val ?? "").trim();
-  if (!s) return;
-  if (dateToUtcEpoch(s) == null) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message: MSG_ENTREGABLE_FECHA_ISO });
-  }
-}
 
 export const entregableSchema = z.object({
   id: z.string().optional(),
@@ -46,81 +28,17 @@ export const entregableSchema = z.object({
   hrs_p2: z.coerce.number().min(0, "≥ 0"),
   hrs_presupuestadas: z.coerce.number().min(0, "≥ 0"),
 }).superRefine((data, ctx) => {
-  refineEntregableFechaCampo(data.fecha_inicio, "fecha_inicio", ctx);
-  refineEntregableFechaCampo(data.fecha_termino, "fecha_termino", ctx);
-
-  if (data.tipo_flujo === "CON_REVISIONES") {
-    if (!data.fecha_revA) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fecha_revA"],
-        message: "Requerido para flujo con revisiones",
-      });
-    }
-    if (!data.fecha_revB) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fecha_revB"],
-        message: "Requerido para flujo con revisiones",
-      });
-    }
-    if (!data.fecha_revP) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fecha_revP"],
-        message: "Requerido para flujo con revisiones",
-      });
-    }
-
-    refineEntregableFechaCampo(data.fecha_revA, "fecha_revA", ctx);
-    refineEntregableFechaCampo(data.fecha_revB, "fecha_revB", ctx);
-    refineEntregableFechaCampo(data.fecha_revP, "fecha_revP", ctx);
-
-    const inicio = data.fecha_inicio;
-    const revA = data.fecha_revA || "";
-    const revB = data.fecha_revB || "";
-    const revP = data.fecha_revP || "";
-    const termino = data.fecha_termino;
-
-    if (inicio && revA && revB && revP && termino) {
-      const isOrdered = inicio <= revA && revA <= revB && revB <= revP && revP <= termino;
-      if (!isOrdered) {
-        const message = "En CON_REVISIONES debe cumplirse: inicio <= Rev.A <= Rev.B <= Rev.P <= término.";
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fecha_inicio"], message });
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fecha_revA"], message });
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fecha_revB"], message });
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fecha_revP"], message });
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fecha_termino"], message });
-      }
-    }
-  } else if (data.tipo_flujo === "SIN_REVISIONES") {
-    const revA = (data.fecha_revA ?? "").trim();
-    const revB = (data.fecha_revB ?? "").trim();
-    if (revA !== "") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fecha_revA"],
-        message: "En SIN_REVISIONES no aplica Rev.A; déjela vacía.",
-      });
-    }
-    if (revB !== "") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fecha_revB"],
-        message: "En SIN_REVISIONES no aplica Rev.B; déjela vacía.",
-      });
-    }
-    const termino = (data.fecha_termino ?? "").trim();
-    const revP = (data.fecha_revP ?? "").trim();
-    if (termino && revP && revP !== termino) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["fecha_revP"],
-        message: "En SIN_REVISIONES Rev.P debe coincidir con la fecha de término.",
-      });
-    }
-    refineEntregableFechaCampo(data.fecha_revP, "fecha_revP", ctx);
-  }
+  refineEntregableFechas(
+    {
+      tipo_flujo: data.tipo_flujo,
+      fecha_inicio: data.fecha_inicio,
+      fecha_termino: data.fecha_termino,
+      fecha_revA: data.fecha_revA ?? null,
+      fecha_revB: data.fecha_revB ?? null,
+      fecha_revP: data.fecha_revP ?? null,
+    },
+    ctx,
+  );
 });
 
 /** Shape base; validación DIRECTA + coherencia proyecto↔entregable: `createRegistroHoraSchema`. */

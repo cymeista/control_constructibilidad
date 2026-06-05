@@ -13,9 +13,16 @@ import { Label } from "@/components/ui/label";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
 import EquipoEntregableSection from "@/components/EquipoEntregableSection";
+import EntregableFechasSection from "@/components/proyectos/EntregableFechasSection";
 import { useAppData, type Profesional, type PmInterno } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
-import { canViewRouteForSession, canEditNotas, canGestionarEquipoEntregable, canEditEstadoProyecto } from "@/security/permissions";
+import {
+  canViewRouteForSession,
+  canEditNotas,
+  canGestionarEquipoEntregable,
+  canEditEstadoProyecto,
+  canAccederFormularios,
+} from "@/security/permissions";
 import {
   TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   agregarTotalesKpiSinL2,
@@ -167,6 +174,7 @@ export default function Proyectos() {
   const puedeVerFormularios = canViewRouteForSession(role, "/formularios");
   const puedeEditarNotas = role ? canEditNotas(role) : false;
   const puedeGestionarEquipo = role ? canGestionarEquipoEntregable(role) : false;
+  const puedeEditarEntregableFechas = role ? canAccederFormularios(role) : false;
   const puedeEditarEstadoProyecto = role ? canEditEstadoProyecto(role) : false;
   const {
     clientes,
@@ -270,6 +278,11 @@ export default function Proyectos() {
 
   const grouped = useMemo(() => agruparClienteProyecto(filasFiltradas), [filasFiltradas]);
 
+  const drawerRowLive = useMemo(() => {
+    if (!drawerRow) return null;
+    return analisisBase.find((r) => r.entregable.id === drawerRow.entregable.id) ?? drawerRow;
+  }, [drawerRow, analisisBase]);
+
   const proyectosNoIniciadoConActividad = useMemo(
     () => listarProyectosNoIniciadoConActividad(proyectos, analisisBase),
     [proyectos, analisisBase],
@@ -370,9 +383,9 @@ export default function Proyectos() {
   );
 
   const historialDrawer = useMemo(() => {
-    if (!drawerRow) return [];
-    return historialRedistribucionPorEntregable(historial_redistribuciones_horas ?? [], drawerRow.entregable.id).slice(0, 12);
-  }, [drawerRow, historial_redistribuciones_horas]);
+    if (!drawerRowLive) return [];
+    return historialRedistribucionPorEntregable(historial_redistribuciones_horas ?? [], drawerRowLive.entregable.id).slice(0, 12);
+  }, [drawerRowLive, historial_redistribuciones_horas]);
 
   return (
     <div className="animate-fade-in min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-10">
@@ -1017,7 +1030,7 @@ export default function Proyectos() {
       )}
 
       <AnimatePresence>
-        {drawerRow ? (
+        {drawerRowLive ? (
           <>
             <motion.button
               type="button"
@@ -1039,10 +1052,10 @@ export default function Proyectos() {
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-t400">Entregable</p>
                   <h2 className="mt-0.5 font-sans text-[16px] font-semibold leading-snug text-t900">
-                    {drawerRow.entregable.nombre}
+                    {drawerRowLive.entregable.nombre}
                   </h2>
                   <p className="mt-1 text-[11px] text-t500">
-                    {drawerRow.cliente.nombre} · {drawerRow.proyecto.codigo} {drawerRow.proyecto.nombre}
+                    {drawerRowLive.cliente.nombre} · {drawerRowLive.proyecto.codigo} {drawerRowLive.proyecto.nombre}
                   </p>
                 </div>
                 <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setDrawerRow(null)}>
@@ -1055,40 +1068,40 @@ export default function Proyectos() {
                   <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
                     <dt className="text-t500">Fase / código</dt>
                     <dd className="text-t800">
-                      {[drawerRow.entregable.fase_codigo, drawerRow.entregable.tarea_codigo].filter(Boolean).join(" · ") || "—"}
+                      {[drawerRowLive.entregable.fase_codigo, drawerRowLive.entregable.tarea_codigo].filter(Boolean).join(" · ") || "—"}
                     </dd>
                     <dt className="text-t500">PM</dt>
                     <dd className="text-t800">
-                      {(drawerRow.proyecto.pm_interno_id && pmMap.get(drawerRow.proyecto.pm_interno_id)?.nombre) ||
-                        drawerRow.proyecto.pm_nombre ||
+                      {(drawerRowLive.proyecto.pm_interno_id && pmMap.get(drawerRowLive.proyecto.pm_interno_id)?.nombre) ||
+                        drawerRowLive.proyecto.pm_nombre ||
                         "—"}
                     </dd>
                     <dt className="text-t500">Líder</dt>
-                    <dd className="text-t800">{profMap.get(drawerRow.entregable.lider_id)?.nombre_completo ?? "—"}</dd>
+                    <dd className="text-t800">{profMap.get(drawerRowLive.entregable.lider_id)?.nombre_completo ?? "—"}</dd>
                     <dt className="text-t500">Estado</dt>
                     <dd>
                       <StatusPill
-                        variant={entregableEstadoToStatusVariant(String(drawerRow.entregable.estado))}
-                        labelOverride={String(drawerRow.entregable.estado)}
+                        variant={entregableEstadoToStatusVariant(String(drawerRowLive.entregable.estado))}
+                        labelOverride={String(drawerRowLive.entregable.estado)}
                       />
                     </dd>
                     <dt className="text-t500">Fechas</dt>
                     <dd className="text-t800">
-                      {fmtDate(drawerRow.entregable.fecha_inicio)} → {fmtDate(drawerRow.entregable.fecha_termino)}
+                      {fmtDate(drawerRowLive.entregable.fecha_inicio)} → {fmtDate(drawerRowLive.entregable.fecha_termino)}
                     </dd>
                     <dt className="text-t500">Revisiones A/B/P</dt>
                     <dd className="text-t800">
-                      {fmtDate(drawerRow.entregable.fecha_revA)} · {fmtDate(drawerRow.entregable.fecha_revB)} ·{" "}
-                      {fmtDate(drawerRow.entregable.fecha_revP)}
+                      {fmtDate(drawerRowLive.entregable.fecha_revA)} · {fmtDate(drawerRowLive.entregable.fecha_revB)} ·{" "}
+                      {fmtDate(drawerRowLive.entregable.fecha_revP)}
                     </dd>
                     <dt className="text-t500">UF presup. / gasto</dt>
                     <dd className="tabular-nums text-t800">
-                      {fmtUF(drawerRow.ufPresup)} / {fmtUF(drawerRow.ufGasto)}
+                      {fmtUF(drawerRowLive.ufPresup)} / {fmtUF(drawerRowLive.ufGasto)}
                     </dd>
                     <dt className="text-t500">Horas presup. / gasto</dt>
                     <dd className="min-w-0 space-y-1.5">
                       <div className="tabular-nums text-t800">
-                        {fmtH(drawerRow.horasPresupuesto)} / {fmtH(drawerRow.horasGastadas)}
+                        {fmtH(drawerRowLive.horasPresupuesto)} / {fmtH(drawerRowLive.horasGastadas)}
                       </div>
                       <table className="w-full border-collapse rounded-r6 border border-bdr/80 text-[10px]">
                         <thead>
@@ -1099,7 +1112,7 @@ export default function Proyectos() {
                           </tr>
                         </thead>
                         <tbody>
-                          {drawerRow.horasPorCategoria.map((fila) => (
+                          {drawerRowLive.horasPorCategoria.map((fila) => (
                             <tr key={fila.categoria} className="border-b border-bdr/50 last:border-b-0">
                               <td className="px-1.5 py-1 font-medium text-t700">{fila.categoria}</td>
                               <td className="px-1.5 py-1 text-right tabular-nums text-t800">{fmtH(fila.horasPresupuesto)}</td>
@@ -1110,48 +1123,53 @@ export default function Proyectos() {
                       </table>
                     </dd>
                     <dt className="text-t500">Saldo horas</dt>
-                    <dd className={`tabular-nums ${drawerRow.saldoHoras < 0 ? "font-semibold text-rose-700" : "text-t800"}`}>
-                      {fmtH(drawerRow.saldoHoras)}
+                    <dd className={`tabular-nums ${drawerRowLive.saldoHoras < 0 ? "font-semibold text-rose-700" : "text-t800"}`}>
+                      {fmtH(drawerRowLive.saldoHoras)}
                     </dd>
                     <dt className="text-t500">Alertas activas</dt>
                     <dd className="flex flex-wrap gap-1">
-                      {drawerRow.alertaSobreconsumoHoras ? (
+                      {drawerRowLive.alertaSobreconsumoHoras ? (
                         <span className="rounded-r4 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-rose-900">
                           Sobreconsumo horas
                         </span>
                       ) : null}
-                      {drawerRow.alertaGastoVsAvance ? (
+                      {drawerRowLive.alertaGastoVsAvance ? (
                         <span className="rounded-r4 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-900">
                           Gasto vs avance (+{TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts)
                         </span>
                       ) : null}
-                      {drawerRow.alertaSinAsignacion ? (
+                      {drawerRowLive.alertaSinAsignacion ? (
                         <span className="rounded-r4 bg-slate-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-800">
                           Gasto sin asignación
                         </span>
                       ) : null}
-                      {drawerRow.redistribuido ? (
+                      {drawerRowLive.redistribuido ? (
                         <span className="rounded-r4 bg-teal-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-teal-900">
                           Redistribuido
                         </span>
                       ) : null}
-                      {!drawerRow.alertaSobreconsumoHoras &&
-                      !drawerRow.alertaGastoVsAvance &&
-                      !drawerRow.alertaSinAsignacion &&
-                      !drawerRow.redistribuido ? (
+                      {!drawerRowLive.alertaSobreconsumoHoras &&
+                      !drawerRowLive.alertaGastoVsAvance &&
+                      !drawerRowLive.alertaSinAsignacion &&
+                      !drawerRowLive.redistribuido ? (
                         <span className="text-t500">Ninguna</span>
                       ) : null}
                     </dd>
                   </dl>
-                  {drawerRow.entregable.nota_seguimiento ? (
+                  {drawerRowLive.entregable.nota_seguimiento ? (
                     <p className="mt-3 rounded-r8 border border-bdr/80 bg-amber-50/50 p-2 text-[11px] text-t700">
                       <span className="font-semibold text-t600">Nota: </span>
-                      {drawerRow.entregable.nota_seguimiento}
+                      {drawerRowLive.entregable.nota_seguimiento}
                     </p>
                   ) : null}
                 </div>
 
-                <EquipoEntregableSection entregable={drawerRow.entregable} puedeEditar={puedeGestionarEquipo} />
+                <EntregableFechasSection
+                  entregable={drawerRowLive.entregable}
+                  puedeEditar={puedeEditarEntregableFechas}
+                />
+
+                <EquipoEntregableSection entregable={drawerRowLive.entregable} puedeEditar={puedeGestionarEquipo} />
 
                 <div className="mt-4">
                   <p className="text-[10px] font-semibold uppercase text-t400">Historial redistribuciones</p>
@@ -1182,7 +1200,7 @@ export default function Proyectos() {
                       variant="outline"
                       size="sm"
                       className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => goGestionHorasEntregable(drawerRow.entregable.id)}
+                      onClick={() => goGestionHorasEntregable(drawerRowLive.entregable.id)}
                     >
                       <Clock size={14} /> Gestión de Horas
                     </Button>
@@ -1193,7 +1211,7 @@ export default function Proyectos() {
                       variant="outline"
                       size="sm"
                       className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => setNotaEnt(drawerRow)}
+                      onClick={() => setNotaEnt(drawerRowLive)}
                     >
                       <StickyNote size={14} /> {puedeEditarNotas ? "Nota" : "Ver nota"}
                     </Button>
@@ -1206,7 +1224,7 @@ export default function Proyectos() {
                       className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
                       onClick={() =>
                         navigate(
-                          `/formularios?entity=entregables&focus=${encodeURIComponent(drawerRow.entregable.id)}`,
+                          `/formularios?entity=entregables&focus=${encodeURIComponent(drawerRowLive.entregable.id)}`,
                         )
                       }
                     >
@@ -1215,7 +1233,7 @@ export default function Proyectos() {
                   ) : null}
                 </div>
                 <div className="mt-2">
-                  <EntregableRedistribuirHorasTrigger ent={drawerRow.entregable} />
+                  <EntregableRedistribuirHorasTrigger ent={drawerRowLive.entregable} />
                 </div>
               </div>
             </motion.aside>
