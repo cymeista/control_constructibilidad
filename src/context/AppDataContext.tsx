@@ -25,6 +25,10 @@ import {
 } from "@/equipo/aplicarMigracionEquipoEntregable";
 import { computePreviewMigracionEquipoEntregable } from "@/equipo/previewMigracionEquipoEntregable";
 import { aplicarReglaUnicoLider } from "@/equipo/equipoEntregableRules";
+import {
+  removerPorDefinirDelEquipoEntregable,
+  sincronizarEntregablesLiderId,
+} from "@/equipo/syncEntregableLider";
 import { recomputarConsumoEnEntregables } from "@/entregables/registroHoraConsumo";
 import {
   hydrateMonedaProyectoFromPersisted,
@@ -1819,6 +1823,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           );
           liderAnteriorPasadoApoyo = habiaLider;
           equipo = aplicarReglaUnicoLider(equipo, eid, pid);
+          equipo = removerPorDefinirDelEquipoEntregable(equipo, eid, pid, prev.profesionales);
         }
 
         const row: EquipoEntregable = {
@@ -1830,8 +1835,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           created_at: now(),
           updated_at: now(),
         };
+        equipo = [...equipo, row];
+        const ts = now();
         result = { ok: true, liderAnteriorPasadoApoyo };
-        return { ...prev, equipo_entregable: [...equipo, row] };
+        return {
+          ...prev,
+          equipo_entregable: equipo,
+          entregables: sincronizarEntregablesLiderId(prev.entregables, eid, equipo, prev.profesionales, ts),
+        };
       });
       return result;
     },
@@ -1868,13 +1879,24 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           );
           liderAnteriorPasadoApoyo = habiaOtroLider;
           equipo = aplicarReglaUnicoLider(equipo, eid, row.profesional_id, equipoId);
+          equipo = removerPorDefinirDelEquipoEntregable(
+            equipo,
+            eid,
+            row.profesional_id,
+            prev.profesionales,
+          );
         }
 
         equipo = equipo.map((e) =>
           e.id === equipoId ? { ...e, rol_en_entregable: rol, updated_at: now() } : e,
         );
+        const ts = now();
         result = { ok: true, liderAnteriorPasadoApoyo };
-        return { ...prev, equipo_entregable: equipo };
+        return {
+          ...prev,
+          equipo_entregable: equipo,
+          entregables: sincronizarEntregablesLiderId(prev.entregables, eid, equipo, prev.profesionales, ts),
+        };
       });
       return result;
     },
@@ -1882,10 +1904,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   );
 
   const quitarIntegranteEquipoEntregable = useCallback((equipoId: string) => {
-    setData((prev) => ({
-      ...prev,
-      equipo_entregable: (prev.equipo_entregable ?? []).filter((e) => e.id !== equipoId),
-    }));
+    setData((prev) => {
+      const row = (prev.equipo_entregable ?? []).find((e) => e.id === equipoId);
+      if (!row) return prev;
+      const eid = (row.entregable_id ?? "").trim();
+      const equipo = (prev.equipo_entregable ?? []).filter((e) => e.id !== equipoId);
+      const ts = now();
+      return {
+        ...prev,
+        equipo_entregable: equipo,
+        entregables: sincronizarEntregablesLiderId(prev.entregables, eid, equipo, prev.profesionales, ts),
+      };
+    });
   }, []);
 
   const addAsignacionHora = useCallback(
