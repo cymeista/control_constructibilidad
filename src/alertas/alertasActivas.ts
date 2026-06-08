@@ -75,6 +75,10 @@ export type AlertasActivasAppSlice = {
 const TIPOS_EXCLUIDOS_CONTEXTO_PROYECTOS: ReadonlySet<TipoAlertaActiva> = new Set([
   "GASTO_VS_AVANCE",
   "SIN_LIDER_VALIDO",
+  "SOBRECONSUMO_HORAS",
+  "GASTO_SIN_ASIGNACION",
+  "LIDER_INCONSISTENTE",
+  "FECHAS_INVALIDAS",
 ]);
 
 export function filtrarAlertasActivasPorContexto(
@@ -83,6 +87,47 @@ export function filtrarAlertasActivasPorContexto(
 ): AlertaActiva[] {
   if (contexto !== "PROYECTOS") return alertas;
   return alertas.filter((a) => !TIPOS_EXCLUIDOS_CONTEXTO_PROYECTOS.has(a.tipo));
+}
+
+/** Una sola alerta de déficit por entregable (varias categorías → un badge/contador). */
+export function agruparAlertasActivasProyectos(alertas: AlertaActiva[]): AlertaActiva[] {
+  const deficitPorCategoria = alertas.filter((a) => a.tipo === "SOBRECONSUMO_CATEGORIA");
+  const otras = alertas.filter((a) => a.tipo !== "SOBRECONSUMO_CATEGORIA");
+  if (deficitPorCategoria.length === 0) return otras;
+
+  const detalle = deficitPorCategoria
+    .map((a) => a.detalle ?? a.etiqueta)
+    .filter(Boolean)
+    .join("; ");
+
+  return [
+    {
+      tipo: "SOBRECONSUMO_CATEGORIA",
+      id: "deficit-categorias",
+      etiqueta: etiquetaCortaAlertaActiva("SOBRECONSUMO_CATEGORIA"),
+      detalle,
+    },
+    ...otras,
+  ];
+}
+
+/** Filtra tipos no deseados y agrupa alertas deduplicadas para Proyectos. */
+export function aplicarPoliticaAlertasPorContexto(
+  alertas: AlertaActiva[],
+  contexto: ContextoAlertasActivas = "TODAS",
+): AlertaActiva[] {
+  const filtradas = filtrarAlertasActivasPorContexto(alertas, contexto);
+  if (contexto !== "PROYECTOS") return filtradas;
+  return agruparAlertasActivasProyectos(filtradas);
+}
+
+/** Líneas de detalle para drawer (categorías con déficit). */
+export function lineasDetalleAlertaDeficitCategoria(alerta: AlertaActiva): string[] {
+  if (alerta.tipo !== "SOBRECONSUMO_CATEGORIA" || !alerta.detalle) return [];
+  return alerta.detalle
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export function etiquetaCortaAlertaActiva(tipo: TipoAlertaActiva): string {
@@ -320,7 +365,7 @@ export function calcularAlertasActivasEntregable(input: AlertasActivasAppSlice):
     });
   }
 
-  return filtrarAlertasActivasPorContexto(alertas, input.contexto ?? "TODAS");
+  return aplicarPoliticaAlertasPorContexto(alertas, input.contexto ?? "TODAS");
 }
 
 export function entregableTieneAlertasActivas(alertas: AlertaActiva[]): boolean {

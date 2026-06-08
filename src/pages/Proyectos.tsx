@@ -41,6 +41,7 @@ import { historialRedistribucionPorEntregable } from "@/entregables/redistribuci
 import {
   claseBadgeAlertaActiva,
   entregableTieneAlertasActivas,
+  lineasDetalleAlertaDeficitCategoria,
   TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   type AlertaActiva,
 } from "@/alertas/alertasActivas";
@@ -1131,10 +1132,26 @@ export default function Proyectos() {
                     <dt className="text-t500">Alertas activas</dt>
                     <dd>
                       {drawerRowLive.alertasActivas.length > 0 ? (
-                        <BadgesAlertasActivas
-                          alertas={drawerRowLive.alertasActivas}
-                          className="text-[9px] [&_span]:text-[9px] [&_span]:font-bold [&_span]:uppercase"
-                        />
+                        <>
+                          <BadgesAlertasActivas
+                            alertas={drawerRowLive.alertasActivas}
+                            className="text-[9px] [&_span]:text-[9px] [&_span]:font-bold [&_span]:uppercase"
+                          />
+                          {(() => {
+                            const deficit = drawerRowLive.alertasActivas.find(
+                              (a) => a.tipo === "SOBRECONSUMO_CATEGORIA",
+                            );
+                            const lineas = deficit ? lineasDetalleAlertaDeficitCategoria(deficit) : [];
+                            if (lineas.length === 0) return null;
+                            return (
+                              <ul className="mt-2 list-inside list-disc space-y-0.5 text-[10px] text-rose-900/90">
+                                {lineas.map((ln) => (
+                                  <li key={ln}>{ln}</li>
+                                ))}
+                              </ul>
+                            );
+                          })()}
+                        </>
                       ) : (
                         <span className="text-t500">Ninguna</span>
                       )}
