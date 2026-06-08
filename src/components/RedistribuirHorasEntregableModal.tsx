@@ -39,7 +39,10 @@ import {
   historialRedistribucionPorEntregable,
   horasEntregableARecord,
   horasAgregarSugeridasParaRegularizarDeficit,
+  advertenciasMinimoTecnicoLegacy,
+  deltaUfRedistribucionPermitido,
   MENSAJE_AUTO_SIN_COMBINACION_05H,
+  mensajeAdvertenciaUfMenorAlOriginal,
   mensajeDeficitCategoriaDestino,
   mensajePresupuestoBajoGastoReal,
   redondearHorasAjusteManual,
@@ -108,9 +111,8 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
   const [categoriaDestino, setCategoriaDestino] = useState<AsignacionHoraCategoria>("L2");
   const [horasAAgregarTexto, setHorasAAgregarTexto] = useState("");
   const [ultimoResultadoRedist, setUltimoResultadoRedist] = useState<ResultadoRedistribDestinoCompleto | null>(null);
-  /** UI legacy asignaciones oculta; cálculos internos se mantienen. */
-  const mostrarDetalleLegacyAsignacionesUi = false;
   const [legacyAsignacionesAbierto, setLegacyAsignacionesAbierto] = useState(false);
+  const [legacyAdvertenciasAbierto, setLegacyAdvertenciasAbierto] = useState(false);
   const [mensajeAuto, setMensajeAuto] = useState<string | null>(null);
   const [detalleAutoExpandido, setDetalleAutoExpandido] = useState(false);
   const [mensajeExitoParcial, setMensajeExitoParcial] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       setDetalleAutoExpandido(false);
       setMensajeExitoParcial(null);
       setLegacyAsignacionesAbierto(false);
+      setLegacyAdvertenciasAbierto(false);
     }
   }, [open, ent]);
 
@@ -161,7 +164,13 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     [horasEdit, tarifas],
   );
   const diffUf = ufDespues - ufAntes;
-  const ufCuadrada = tarifas && Math.abs(diffUf) <= UF_REDISTRIBUCION_TOLERANCIA;
+  const ufPermitida = tarifas != null && deltaUfRedistribucionPermitido(diffUf);
+  const mensajeUfMenor = mensajeAdvertenciaUfMenorAlOriginal(diffUf);
+  const advertenciasLegacy = useMemo(
+    () => (tarifas ? advertenciasMinimoTecnicoLegacy(horasEdit, lineas) : []),
+    [tarifas, horasEdit, lineas],
+  );
+  const mostrarDetalleLegacyAsignacionesUi = advertenciasLegacy.length > 0;
 
   const erroresGuardadoVivo = useMemo(() => {
     if (!tarifas) return ["Sin tarifas de proyecto válidas."];
@@ -329,8 +338,9 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
           <DialogHeader className="text-left">
             <DialogTitle>Redistribuir presupuesto por categoría</DialogTitle>
             <DialogDescription>
-              Ajusta L2 / P4 / P3 / P2 según presupuesto y gasto real RegistroHora (DIRECTA válida), conservando UF total
-              dentro de ±{UF_REDISTRIBUCION_TOLERANCIA} UF. No modifica asignaciones ni registros de horas.
+              Ajusta L2 / P4 / P3 / P2 según presupuesto y gasto real RegistroHora. No se permite aumentar el presupuesto
+              UF total del entregable; si el ajuste queda levemente bajo el presupuesto original, se permite como ajuste
+              conservador. No modifica asignaciones ni registros de horas.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -408,50 +418,74 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
               </div>
 
               {mostrarDetalleLegacyAsignacionesUi ? (
-                <div className="rounded-r8 border border-bdr/80 bg-white/60">
+                <div className="rounded-r8 border border-amber-200/80 bg-amber-50/50">
                   <button
                     type="button"
-                    onClick={() => setLegacyAsignacionesAbierto((v) => !v)}
-                    className="flex min-h-[40px] w-full items-center justify-between gap-2 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-t500"
+                    onClick={() => setLegacyAdvertenciasAbierto((v) => !v)}
+                    className="flex min-h-[40px] w-full items-center justify-between gap-2 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-amber-900"
                   >
-                    Detalle legacy de asignaciones
+                    Mínimo técnico legacy (informativo)
                     <ChevronDown
                       size={14}
-                      className={`shrink-0 text-t400 transition-transform ${legacyAsignacionesAbierto ? "rotate-180" : ""}`}
+                      className={`shrink-0 text-amber-700 transition-transform ${legacyAdvertenciasAbierto ? "rotate-180" : ""}`}
                     />
                   </button>
-                  {legacyAsignacionesAbierto ? (
-                    <div className="border-t border-bdr px-2 pb-3 pt-1">
-                      <p className="mb-2 px-1 text-[10px] leading-snug text-t500">
-                        Cupos por asignaciones_horas (cerradas, comprometidas activas, gasto Bloque 2). No define la lectura
-                        operativa principal.
+                  {legacyAdvertenciasAbierto ? (
+                    <div className="border-t border-amber-200/80 px-3 pb-3 pt-2">
+                      <p className="mb-2 text-[10px] leading-snug text-amber-900/90">
+                        Estas categorías quedan bajo el mínimo técnico de asignaciones, pero cubren el gasto real
+                        RegistroHora. No bloquea guardar.
                       </p>
-                      <div className="overflow-x-auto rounded-r6 border border-bdr">
-                        <table className="w-full min-w-[480px] border-collapse text-[10px]">
-                          <thead>
-                            <tr className="border-b border-bdr bg-surface2 text-left text-t500">
-                              <th className="p-1.5">Cat.</th>
-                              <th className="p-1.5 text-right">Cons. hist.</th>
-                              <th className="p-1.5 text-right">Gasto act.</th>
-                              <th className="p-1.5 text-right">Comprom.</th>
-                              <th className="p-1.5 text-right">Saldo legacy</th>
-                              <th className="p-1.5 text-right">Mín. operativo</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {lineas.map((ln) => (
-                              <tr key={`leg-${ln.categoria}`} className="border-b border-bdr/60">
-                                <td className="p-1.5 font-mono font-semibold">{ln.categoria}</td>
-                                <td className="p-1.5 text-right font-mono">{fmtH(ln.consumidoHistoricoCerrado)} h</td>
-                                <td className="p-1.5 text-right font-mono">{fmtH(ln.gastoRealActivo)} h</td>
-                                <td className="p-1.5 text-right font-mono">{fmtH(ln.comprometidoActivo)} h</td>
-                                <td className="p-1.5 text-right font-mono">{fmtH(ln.saldoLegacyAsignaciones)} h</td>
-                                <td className="p-1.5 text-right font-mono">{fmtH(ln.minHorasPermitidas)} h</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <ul className="list-inside list-disc space-y-1 text-[10px] text-amber-950">
+                        {advertenciasLegacy.map((w) => (
+                          <li key={w}>{w}</li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => setLegacyAsignacionesAbierto((v) => !v)}
+                        className="mt-3 flex min-h-[36px] w-full items-center justify-between gap-2 rounded-r6 border border-bdr/80 bg-white/70 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-t500"
+                      >
+                        Detalle legacy de asignaciones
+                        <ChevronDown
+                          size={14}
+                          className={`shrink-0 text-t400 transition-transform ${legacyAsignacionesAbierto ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                      {legacyAsignacionesAbierto ? (
+                        <div className="mt-2 border-t border-bdr px-1 pb-1 pt-2">
+                          <p className="mb-2 px-1 text-[10px] leading-snug text-t500">
+                            Cupos por asignaciones_horas (cerradas, comprometidas activas, gasto Bloque 2). No define la
+                            lectura operativa principal.
+                          </p>
+                          <div className="overflow-x-auto rounded-r6 border border-bdr">
+                            <table className="w-full min-w-[480px] border-collapse text-[10px]">
+                              <thead>
+                                <tr className="border-b border-bdr bg-surface2 text-left text-t500">
+                                  <th className="p-1.5">Cat.</th>
+                                  <th className="p-1.5 text-right">Cons. hist.</th>
+                                  <th className="p-1.5 text-right">Gasto act.</th>
+                                  <th className="p-1.5 text-right">Comprom.</th>
+                                  <th className="p-1.5 text-right">Saldo legacy</th>
+                                  <th className="p-1.5 text-right">Mín. operativo</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lineas.map((ln) => (
+                                  <tr key={`leg-${ln.categoria}`} className="border-b border-bdr/60">
+                                    <td className="p-1.5 font-mono font-semibold">{ln.categoria}</td>
+                                    <td className="p-1.5 text-right font-mono">{fmtH(ln.consumidoHistoricoCerrado)} h</td>
+                                    <td className="p-1.5 text-right font-mono">{fmtH(ln.gastoRealActivo)} h</td>
+                                    <td className="p-1.5 text-right font-mono">{fmtH(ln.comprometidoActivo)} h</td>
+                                    <td className="p-1.5 text-right font-mono">{fmtH(ln.saldoLegacyAsignaciones)} h</td>
+                                    <td className="p-1.5 text-right font-mono">{fmtH(ln.minHorasPermitidas)} h</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -583,7 +617,10 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                       <span className="font-mono font-semibold">
                         {ultimoResultadoRedist.diferenciaUf.toFixed(4)}
                       </span>{" "}
-                      (dentro de tolerancia). Revise «Horas finales propuestas» a la derecha y guarde con comentario.
+                      {ultimoResultadoRedist.diferenciaUf < -1e-9
+                        ? "(ajuste conservador, UF menor al original)"
+                        : "(sin aumento excesivo de UF)"}
+                      . Revise «Horas finales propuestas» a la derecha y guarde con comentario.
                     </p>
                     <div className="mt-2 overflow-x-auto rounded-r6 border border-teal-600/20 bg-white/80">
                       <table className="w-full min-w-[280px] border-collapse text-[10px]">
@@ -691,7 +728,8 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                 <div className="mb-1 font-semibold text-t900">Ajuste manual — horas finales por categoría</div>
                 <p className="mb-2 text-[11px] leading-snug text-t600">
                   Edite L2 / P4 / P3 / P2 con precisión de 0,1 h (hasta 0,01 h internamente). La UF se recalcula al
-                  instante; puede guardar cuando ΔUF esté dentro de ±{UF_REDISTRIBUCION_TOLERANCIA} UF.
+                  instante; puede guardar si no aumenta la UF total por más de +{UF_REDISTRIBUCION_TOLERANCIA} UF (UF
+                  final menor al original se permite).
                 </p>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-2">
                   {CATEGORIAS_REDIST.map((c) => {
@@ -747,14 +785,21 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                   </span>
                   {tarifas ? (
                     <span
-                      className={ufCuadrada ? "font-semibold text-[#047857]" : "font-semibold text-[#B91C1C]"}
+                      className={ufPermitida ? "font-semibold text-[#047857]" : "font-semibold text-[#B91C1C]"}
                     >
-                      {ufCuadrada
-                        ? "UF cuadrada (dentro de tolerancia)"
-                        : "Fuera de tolerancia ±0,05 UF — no se puede guardar"}
+                      {ufPermitida
+                        ? diffUf < -1e-9
+                          ? "UF permitida (ajuste conservador)"
+                          : "UF permitida (sin aumento excesivo)"
+                        : `Aumento de UF excesivo (máx. +${UF_REDISTRIBUCION_TOLERANCIA} UF) — no se puede guardar`}
                     </span>
                   ) : null}
                 </div>
+                {mensajeUfMenor ? (
+                  <p className="mt-2 rounded-r6 border border-amber-200/80 bg-amber-50/80 px-2.5 py-1.5 text-[10px] leading-snug text-amber-950">
+                    {mensajeUfMenor}
+                  </p>
+                ) : null}
                 {!puedeGuardar && erroresGuardadoVivo.length > 0 ? (
                   <ul className="mt-2 list-inside list-disc rounded-r6 border border-rose-200/80 bg-rose-50/80 px-2.5 py-1.5 text-[10px] text-rose-900">
                     {erroresGuardadoVivo.map((e) => (
@@ -835,7 +880,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
             className="rounded-r8"
             onClick={onGuardar}
             disabled={!puedeGuardar}
-            title={!puedeGuardar ? "Revise ΔUF, mínimos por categoría y comentario" : undefined}
+            title={!puedeGuardar ? "Revise aumento de UF, gasto real RegistroHora y comentario" : undefined}
           >
             Guardar redistribución
           </Button>

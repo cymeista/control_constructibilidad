@@ -24,6 +24,21 @@ export const CATEGORIAS_REDIST: AsignacionHoraCategoria[] = ["L2", "P4", "P3", "
 
 export const UF_REDISTRIBUCION_TOLERANCIA = 0.05;
 
+/** Solo bloquea si la UF total sube más de la tolerancia; UF igual o menor se permite. */
+export function deltaUfRedistribucionExcedeToleranciaAlza(deltaUf: number): boolean {
+  return deltaUf > UF_REDISTRIBUCION_TOLERANCIA + 1e-9;
+}
+
+export function deltaUfRedistribucionPermitido(deltaUf: number): boolean {
+  return !deltaUfRedistribucionExcedeToleranciaAlza(deltaUf);
+}
+
+export function mensajeAdvertenciaUfMenorAlOriginal(deltaUf: number): string | null {
+  if (deltaUf >= -1e-9) return null;
+  const x = Math.abs(deltaUf);
+  return `Redistribución permitida: el presupuesto UF final queda por debajo del presupuesto original en ${x.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} UF. No se aumenta el monto total del entregable.`;
+}
+
 export type HorasPorCategoria = Record<AsignacionHoraCategoria, number>;
 
 export type TarifasPorCategoria = HorasPorCategoria;
@@ -309,10 +324,10 @@ export function generarPropuestaRedistribucion(
       objetivo.modo === "deficit"
         ? `No hay déficit detectado para ${objetivo.categoriaDestino} (o el déficit es 0 h tras redondear a 0,5 h).`
         : "Indique horas a agregar mayores a 0 (se redondean hacia arriba al múltiplo de 0,5 h más cercano).";
-  } else if (ufNecesaria > 1e-6 && ufRestante > 0.05) {
+  } else if (ufNecesaria > 1e-6 && deltaUfRedistribucionExcedeToleranciaAlza(diferenciaUf)) {
     incompleta = true;
     mensajeIncompleta =
-      "No hay suficientes horas disponibles para mover en otras categorías para compensar económicamente el aumento sugerido. Ajuste manualmente o reduzca el aumento en el destino.";
+      "La propuesta aumentaría la UF total del entregable por más de la tolerancia permitida. Reduzca el incremento en destino o ajuste manualmente desde categorías con saldo.";
   }
 
   return {
@@ -325,11 +340,9 @@ export function generarPropuestaRedistribucion(
   };
 }
 
-/** Máximas horas que se pueden restar a una categoría (múltiplos de 0,5 h hacia abajo) respetando mínimo y “disp. mover”. */
+/** Máximas horas que se pueden restar (0,5 h ↓) sin bajar del gasto real RegistroHora. */
 function maxHorasReduciblesDesdeActual(ln: LineaRedistribucionCategoria, horasActualesCategoria: number): number {
-  const porMinimo = Math.max(0, horasActualesCategoria - ln.minHorasPermitidas);
-  const cap = Math.min(ln.disponibleParaMover, porMinimo);
-  return redondearMediaHoraHaciaAbajo(Math.max(0, cap));
+  return redondearMediaHoraHaciaAbajo(maxHorasReduciblesRespetandoGastoReal(ln, horasActualesCategoria));
 }
 
 function propuestaAgregarManualCumple(
@@ -344,7 +357,7 @@ function propuestaAgregarManualCumple(
   if (horasProp[dest] + 1e-6 < horasActuales[dest] + addRounded) return false;
   const du =
     calcularUfEntregablePorCategoria(horasProp, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
-  if (Math.abs(du) > UF_REDISTRIBUCION_TOLERANCIA) return false;
+  if (deltaUfRedistribucionExcedeToleranciaAlza(du)) return false;
   const errs = validarRedistribucionHoras(horasActuales, horasProp, lineas, tarifas, ".", {
     exigirMultiploMediaHora: true,
     exigirComentario: false,
@@ -389,7 +402,7 @@ function buscarSugerenciasAgregarHoras(
   addSolicitadoRounded: number,
   ufAntes: number,
 ): SugerenciaRedistribAgregar[] {
-  const mins = Object.fromEntries(lineas.map((ln) => [ln.categoria, ln.minHorasPermitidas])) as HorasPorCategoria;
+  const mins = Object.fromEntries(lineas.map((ln) => [ln.categoria, ln.gastoRealRegistroHora])) as HorasPorCategoria;
   const lnBy = Object.fromEntries(lineas.map((ln) => [ln.categoria, ln])) as Record<
     AsignacionHoraCategoria,
     LineaRedistribucionCategoria
@@ -424,7 +437,7 @@ function buscarSugerenciasAgregarHoras(
       if (horasActuales[o] - h[o] > caps[o] + 1e-9) return;
     }
     const deltaUf = calcularUfEntregablePorCategoria(h, tarifas) - ufAntes;
-    if (Math.abs(deltaUf) > UF_REDISTRIBUCION_TOLERANCIA + 1e-9) return;
+    if (deltaUf > UF_REDISTRIBUCION_TOLERANCIA + 1e-9) return;
 
     const key = CATEGORIAS_REDIST.map((c) => h[c].toFixed(1)).join("|");
     if (seen.has(key)) return;
@@ -438,7 +451,7 @@ function buscarSugerenciasAgregarHoras(
       .filter(Boolean) as string[];
     let descripcion = `Agregar ${addDest.toFixed(1)} h a ${dest}`;
     if (remParts.length) descripcion += " descontando " + remParts.join(" y ");
-    descripcion += ` · ΔUF ${deltaUf.toFixed(4)} (tolerancia ±${UF_REDISTRIBUCION_TOLERANCIA})`;
+    descripcion += ` · ΔUF ${deltaUf.toFixed(4)} (máx. alza +${UF_REDISTRIBUCION_TOLERANCIA} UF)`;
 
     candidatos.push({
       horasPropuestas: { ...h },
@@ -506,7 +519,7 @@ function buscarSugerenciasAgregarHoras(
   candidatos.sort((A, B) => {
     const u = A.distanciaHorasSolicitadas - B.distanciaHorasSolicitadas;
     if (Math.abs(u) > 1e-9) return u;
-    return Math.abs(A.deltaUf) - Math.abs(B.deltaUf);
+    return B.deltaUf - A.deltaUf;
   });
   return candidatos.slice(0, 8);
 }
@@ -568,15 +581,19 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
     horasManualBrutas: raw,
   });
 
+  const destAddGenerador = redondearMediaHoraHaciaArriba(
+    Math.max(0, p.horasPropuestas[categoriaDestino] - horasActuales[categoriaDestino]),
+  );
   const generadorOk =
     !p.incompleta &&
+    destAddGenerador > 1e-6 &&
     propuestaAgregarManualCumple(
       horasActuales,
       p.horasPropuestas,
       lineas,
       tarifas,
       categoriaDestino,
-      addRounded,
+      destAddGenerador,
     );
 
   if (generadorOk) {
@@ -586,7 +603,7 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
       ufAntes,
       ufDespues: p.ufDespues,
       diferenciaUf: p.diferenciaUf,
-      addRoundedSolicitud: addRounded,
+      addRoundedSolicitud: destAddGenerador,
       ufRequeridaSolicitud: ufReq,
       ufCompensableMax,
       mensajes: [],
@@ -603,26 +620,36 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
     ufAntes,
   );
 
-  const exactFromSearch = sugerencias.find((s) => Math.abs(s.destinoAdd - addRounded) < 1e-9);
-  if (
-    exactFromSearch &&
-    propuestaAgregarManualCumple(
-      horasActuales,
-      exactFromSearch.horasPropuestas,
-      lineas,
-      tarifas,
-      categoriaDestino,
-      addRounded,
-    )
-  ) {
-    const ufDespues = calcularUfEntregablePorCategoria(exactFromSearch.horasPropuestas, tarifas);
+  const viableFromSearch = sugerencias.filter(
+    (s) =>
+      deltaUfRedistribucionPermitido(s.deltaUf) &&
+      propuestaAgregarManualCumple(
+        horasActuales,
+        s.horasPropuestas,
+        lineas,
+        tarifas,
+        categoriaDestino,
+        s.destinoAdd,
+      ),
+  );
+  const exactFromSearch = viableFromSearch.find((s) => Math.abs(s.destinoAdd - addRounded) < 1e-9);
+  const conservadoraFromSearch =
+    exactFromSearch ??
+    viableFromSearch.sort((a, b) => {
+      const u = a.distanciaHorasSolicitadas - b.distanciaHorasSolicitadas;
+      if (Math.abs(u) > 1e-9) return u;
+      return b.deltaUf - a.deltaUf;
+    })[0];
+
+  if (conservadoraFromSearch) {
+    const ufDespues = calcularUfEntregablePorCategoria(conservadoraFromSearch.horasPropuestas, tarifas);
     return {
       codigo: "ok",
-      propuesta: { ...exactFromSearch.horasPropuestas },
+      propuesta: { ...conservadoraFromSearch.horasPropuestas },
       ufAntes,
       ufDespues,
       diferenciaUf: ufDespues - ufAntes,
-      addRoundedSolicitud: addRounded,
+      addRoundedSolicitud: conservadoraFromSearch.destinoAdd,
       ufRequeridaSolicitud: ufReq,
       ufCompensableMax,
       mensajes: [],
@@ -640,7 +667,9 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
     );
     if (p.incompleta && p.mensajeIncompleta) mensajes.push(p.mensajeIncompleta);
     if (!sugerencias.length) {
-      mensajes.push("No se encontraron alternativas automáticas con ΔUF dentro de tolerancia en la búsqueda acotada.");
+      mensajes.push(
+        "No se encontraron alternativas automáticas que no superen el aumento máximo de UF en la búsqueda acotada.",
+      );
     }
     return {
       codigo: "sin_disponibilidad",
@@ -657,18 +686,20 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
   }
 
   mensajes.push(
-    `No es posible generar una redistribución válida para +${addRounded.toFixed(1)} h en ${categoriaDestino} con las categorías disponibles, redondeo a 0,5 h y tolerancia ±${UF_REDISTRIBUCION_TOLERANCIA} UF.`,
+    `No es posible generar una redistribución válida para +${addRounded.toFixed(1)} h en ${categoriaDestino} sin superar +${UF_REDISTRIBUCION_TOLERANCIA} UF de aumento total (redondeo 0,5 h).`,
   );
   mensajes.push(
     `UF requerida (incremento redondeado): ${ufReq.toFixed(4)}. UF máxima compensable en orígenes (en pasos de 0,5 h): ${ufCompensableMax.toFixed(4)}.`,
   );
   mensajes.push(
-    "Hay disponibilidad de UF en origen, pero no existe combinación válida con múltiplos de 0,5 h dentro de ±0,05 UF para el incremento solicitado (cuadratura por discretización / tarifas).",
+    "Hay disponibilidad en origen, pero no existe combinación válida que cubra el incremento sin aumentar la UF total por encima del límite (discretización / tarifas). Pruebe un ajuste manual conservador.",
   );
   if (p.incompleta && p.mensajeIncompleta) mensajes.push(p.mensajeIncompleta);
   if (!p.incompleta) {
-    if (Math.abs(p.diferenciaUf) > UF_REDISTRIBUCION_TOLERANCIA) {
-      mensajes.push(`El intento automático previo dejó ΔUF en ${p.diferenciaUf.toFixed(4)} (límite ±${UF_REDISTRIBUCION_TOLERANCIA}).`);
+    if (deltaUfRedistribucionExcedeToleranciaAlza(p.diferenciaUf)) {
+      mensajes.push(
+        `El intento automático previo dejó ΔUF en ${p.diferenciaUf.toFixed(4)} (límite de alza +${UF_REDISTRIBUCION_TOLERANCIA} UF).`,
+      );
     }
     if (p.horasPropuestas[categoriaDestino] + 1e-6 < horasActuales[categoriaDestino] + addRounded) {
       mensajes.push(
@@ -714,7 +745,7 @@ export function calcularRedistribucionAgregarHorasDestino(
   });
 }
 
-/** Ajuste fino en pasos de 0,5 h para acercar ΔUF a cero respetando mínimos por categoría. */
+/** Ajuste fino en pasos de 0,5 h para bajar ΔUF si supera +tolerancia; no sube UF si quedó bajo el original. */
 export function refinarUfRedistribucion(
   horasActuales: HorasPorCategoria,
   horasPropuestas: HorasPorCategoria,
@@ -722,13 +753,15 @@ export function refinarUfRedistribucion(
   lineas: LineaRedistribucionCategoria[],
 ): HorasPorCategoria {
   const h = { ...horasPropuestas };
-  const minC = Object.fromEntries(lineas.map((ln) => [ln.categoria, ln.minHorasPermitidas])) as HorasPorCategoria;
+  const minC = Object.fromEntries(
+    lineas.map((ln) => [ln.categoria, ln.gastoRealRegistroHora]),
+  ) as HorasPorCategoria;
   const du = () => calcularUfEntregablePorCategoria(h, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
   const cats = [...CATEGORIAS_REDIST];
 
   for (let iter = 0; iter < 500; iter++) {
     const d = du();
-    if (Math.abs(d) <= UF_REDISTRIBUCION_TOLERANCIA) break;
+    if (d <= UF_REDISTRIBUCION_TOLERANCIA + 1e-9) break;
     let moved = false;
     if (d > UF_REDISTRIBUCION_TOLERANCIA) {
       for (const c of [...cats].sort((a, b) => tarifas[a] - tarifas[b])) {
@@ -746,23 +779,6 @@ export function refinarUfRedistribucion(
               h[c] -= 0.5;
               continue;
             }
-            moved = true;
-            break;
-          }
-        }
-      }
-    } else {
-      for (const c of [...cats].sort((a, b) => tarifas[b] - tarifas[a])) {
-        if (h[c] < horasActuales[c] && h[c] + 0.5 <= horasActuales[c] + 1e-9 && h[c] + 0.5 >= minC[c] - 1e-9) {
-          h[c] += 0.5;
-          moved = true;
-          break;
-        }
-      }
-      if (!moved) {
-        for (const c of [...cats].sort((a, b) => tarifas[a] - tarifas[b])) {
-          if (h[c] > horasActuales[c] && h[c] - 0.5 >= minC[c] - 1e-9) {
-            h[c] -= 0.5;
             moved = true;
             break;
           }
@@ -788,7 +804,7 @@ export function redondearHorasAjusteManual(h: number): number {
 }
 
 export const MENSAJE_AUTO_SIN_COMBINACION_05H =
-  "No se encontró combinación automática con redondeo 0,5 h. Puedes ajustar manualmente las horas finales manteniendo ΔUF dentro de ±0,05 UF.";
+  "No se encontró combinación automática con redondeo 0,5 h sin superar el aumento máximo de UF. Puedes ajustar manualmente las horas finales (se permite UF final menor al original).";
 
 /** Horas a sumar al presupuesto para cubrir el déficit operativo (gasto real − presupuesto). */
 export function horasAgregarSugeridasParaRegularizarDeficit(ln: LineaRedistribucionCategoria): number {
@@ -984,7 +1000,7 @@ export function refinarUfRedistribucionFino(
 
   for (let iter = 0; iter < 2000; iter++) {
     const d = du();
-    if (Math.abs(d) <= UF_REDISTRIBUCION_TOLERANCIA) break;
+    if (d <= UF_REDISTRIBUCION_TOLERANCIA + 1e-9) break;
     let moved = false;
     if (d > UF_REDISTRIBUCION_TOLERANCIA) {
       for (const c of [...cats].sort((a, b) => tarifas[a] - tarifas[b])) {
@@ -1007,27 +1023,33 @@ export function refinarUfRedistribucionFino(
           }
         }
       }
-    } else {
-      for (const c of [...cats].sort((a, b) => tarifas[b] - tarifas[a])) {
-        if (h[c] < horasActuales[c] && h[c] + pasoHoras <= horasActuales[c] + 1e-9 && h[c] + pasoHoras >= minC[c] - 1e-9) {
-          h[c] = redondearHorasAjusteManual(h[c] + pasoHoras);
-          moved = true;
-          break;
-        }
-      }
-      if (!moved) {
-        for (const c of [...cats].sort((a, b) => tarifas[a] - tarifas[b])) {
-          if (h[c] > horasActuales[c] && h[c] - pasoHoras >= minC[c] - 1e-9) {
-            h[c] = redondearHorasAjusteManual(h[c] - pasoHoras);
-            moved = true;
-            break;
-          }
-        }
-      }
     }
     if (!moved) break;
   }
   return h;
+}
+
+/** Advertencias no bloqueantes: mínimo técnico legacy por asignaciones (solo si gasto real ya está cubierto). */
+export function advertenciasMinimoTecnicoLegacy(
+  horasNuevas: HorasPorCategoria,
+  lineas: LineaRedistribucionCategoria[],
+): string[] {
+  const out: string[] = [];
+  for (const c of CATEGORIAS_REDIST) {
+    const ln = lineas.find((l) => l.categoria === c);
+    if (!ln) continue;
+    const v = horasNuevas[c];
+    if (
+      v + 1e-6 >= ln.gastoRealRegistroHora &&
+      v + 1e-6 < ln.minHorasPermitidas &&
+      ln.minHorasPermitidas > ln.gastoRealRegistroHora + 1e-6
+    ) {
+      out.push(
+        `${c}: el presupuesto (${v.toFixed(1)} h) queda bajo el mínimo técnico legacy de asignaciones (${ln.minHorasPermitidas.toFixed(1)} h), pero cubre el gasto real RegistroHora (${ln.gastoRealRegistroHora.toFixed(1)} h).`,
+      );
+    }
+  }
+  return out;
 }
 
 export function mensajePresupuestoBajoGastoReal(
@@ -1078,22 +1100,14 @@ export function validarRedistribucionHoras(
       if (!mejoraDeficitParcial) {
         errs.push(mensajePresupuestoBajoGastoReal(c, v, ln));
       }
-    } else if (
-      v + 1e-6 < ln.minHorasPermitidas &&
-      ln.minHorasPermitidas > ln.gastoRealRegistroHora + 1e-6 &&
-      v > ln.gastoRealRegistroHora + 1e-6
-    ) {
-      errs.push(
-        `${c}: el presupuesto (${v.toFixed(1)} h) no alcanza el mínimo técnico de guardado (${ln.minHorasPermitidas.toFixed(1)} h). Revise el detalle legacy de asignaciones si aplica.`,
-      );
     }
   }
 
   const du =
     calcularUfEntregablePorCategoria(horasNuevas, tarifas) - calcularUfEntregablePorCategoria(horasActuales, tarifas);
-  if (Math.abs(du) > UF_REDISTRIBUCION_TOLERANCIA) {
+  if (deltaUfRedistribucionExcedeToleranciaAlza(du)) {
     errs.push(
-      `La diferencia de UF (${du.toFixed(4)}) supera la tolerancia (±${UF_REDISTRIBUCION_TOLERANCIA} UF). Ajuste las horas finales por categoría.`,
+      `La UF total aumentaría en ${du.toFixed(4)} UF (máximo permitido +${UF_REDISTRIBUCION_TOLERANCIA} UF). Ajuste las horas finales por categoría.`,
     );
   }
 
