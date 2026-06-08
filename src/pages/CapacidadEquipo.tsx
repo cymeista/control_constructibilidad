@@ -17,6 +17,7 @@ import {
 import { PERIODOS_CAPACIDAD_OPCIONES, type PeriodoCapacidadId } from "@/capacidad/capacidadPeriodo";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { formatDateForDisplay } from "@/lib/localDate";
 
 const fmtH = (n: number) =>
   n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
@@ -30,10 +31,7 @@ function fmtCargabilidadReal(n: number | null, totalRegistrado: number): string 
 }
 
 function fmtFechaCorte(iso: string | null): string {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  if (!y || !m || !d) return iso;
-  return `${d}-${m}-${y}`;
+  return formatDateForDisplay(iso, "-");
 }
 
 function CampoCompacto({ label, children }: { label: string; children: ReactNode }) {

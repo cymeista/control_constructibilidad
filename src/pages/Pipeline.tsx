@@ -4,13 +4,17 @@ import { Inbox } from "lucide-react";
 import SectionHeader from "@/components/SectionHeader";
 import { Slider } from "@/components/ui/slider";
 import { useAppData, type Pipeline, type PmInterno } from "@/context/AppDataContext";
+import { localDateToDate } from "@/lib/localDate";
 
 /* ─── helpers ─── */
 const fmtNum = (n: number) =>
   n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
-const fmtDate = (d: string) =>
-  new Date(d).toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
+const fmtDate = (d: string) => {
+  const date = localDateToDate(d);
+  if (!date) return d;
+  return date.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
+};
 
 const etapaConfig = {
   CONCEPTUAL: { bg: "#ECFDF5", text: "#047857", label: "Conceptual" },

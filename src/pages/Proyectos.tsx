@@ -45,6 +45,7 @@ import {
   TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   type AlertaActiva,
 } from "@/alertas/alertasActivas";
+import { formatDateForDisplayShort } from "@/lib/localDate";
 
 const fmtH = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmtUF = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -63,10 +64,7 @@ function BadgesAlertasActivas({ alertas, className = "" }: { alertas: AlertaActi
   );
 }
 
-const fmtDate = (d: string | null) =>
-  d && d.trim()
-    ? new Date(d + "T12:00:00").toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "2-digit" })
-    : "—";
+const fmtDate = (d: string | null) => formatDateForDisplayShort(d);
 
 const EPS_DISPONIBLE = 1e-6;
 

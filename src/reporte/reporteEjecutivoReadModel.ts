@@ -57,6 +57,7 @@ import {
   type PeriodoReporteEjecutivoId,
   rangoPeriodoReporteEjecutivo,
 } from "@/reporte/reporteEjecutivoPeriodo";
+import { formatDateForDisplay } from "@/lib/localDate";
 
 const EPS = 1e-6;
 export const PROXIMOS_HITOS_MAX_FILAS_PDF = 8;
@@ -170,9 +171,7 @@ function registroInScope(r: RegistroHora, proyectoIds: Set<string> | null): bool
 }
 
 function fmtDdMmYyyy(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  if (!y || !m || !d) return iso;
-  return `${d}-${m}-${y}`;
+  return formatDateForDisplay(iso, "-");
 }
 
 const MESES_ES_REPORTE = [

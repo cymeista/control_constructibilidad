@@ -1,4 +1,5 @@
 import type { EntregableFechasInput } from "@/entregables/entregableFechasValidation";
+import { formatDateForInput, normalizeDateInputValue } from "@/lib/localDate";
 
 function DateField({
   label,
@@ -16,9 +17,9 @@ function DateField({
       {label}
       <input
         type="date"
-        value={value}
+        value={formatDateForInput(value)}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange(normalizeDateInputValue(e.target.value))}
         className="h-9 w-full rounded-r6 border border-bdr bg-white px-2 text-[12px] text-t800 disabled:opacity-60"
       />
     </label>

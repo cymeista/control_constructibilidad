@@ -5,22 +5,18 @@ import SectionHeader from "@/components/SectionHeader";
 import FilterBar from "@/components/FilterBar";
 import StatusPill, { entregableEstadoToStatusVariant } from "@/components/StatusPill";
 import DataTable from "@/components/DataTable";
+import { diffCalendarDaysFromToday, formatDateForDisplay } from "@/lib/localDate";
 
 /* ─────────── Helpers ─────────── */
 const fmtNum = (n: number) =>
   n.toLocaleString("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 
-const fmtDate = (d: string | null) => {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
-};
+const fmtDate = (d: string | null) => formatDateForDisplay(d);
 
 function dateStatus(d: string | null): "past" | "soon" | "ok" {
   if (!d) return "ok";
-  const target = new Date(d);
-  const now = new Date();
-  const diffDays = Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = diffCalendarDaysFromToday(d);
+  if (diffDays == null) return "ok";
   if (diffDays < 0) return "past";
   if (diffDays <= 7) return "soon";
   return "ok";

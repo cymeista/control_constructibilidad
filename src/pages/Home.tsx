@@ -40,6 +40,7 @@ import {
 } from "chart.js";
 import ChartJsLineFrame from "@/components/ChartJsLineFrame";
 import { format } from "date-fns";
+import { diffCalendarDaysFromToday, formatDateForDisplay } from "@/lib/localDate";
 import { Calendar, ChevronDown, ChevronRight, StickyNote } from "lucide-react";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
 import { EntregableFechasEditModal } from "@/components/entregables/EntregableFechasEditModal";
@@ -84,13 +85,11 @@ function ProgressBarCell({ value, status }: { value: number; status: string }) {
 
 function DateCell({ date }: { date: string | null }) {
   if (!date) return <span className="text-[11.5px] font-mono text-t300">—</span>;
-  const d = new Date(date);
-  const today = new Date();
-  const diff = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diff = diffCalendarDaysFromToday(date);
   let cls = "text-[11.5px] font-mono text-t500";
-  if (diff < 0) cls = "text-[11.5px] font-mono font-medium text-red";
-  else if (diff <= 7) cls = "text-[11.5px] font-mono font-medium text-amber";
-  return <span className={cls}>{format(d, "dd/MM/yyyy")}</span>;
+  if (diff != null && diff < 0) cls = "text-[11.5px] font-mono font-medium text-red";
+  else if (diff != null && diff <= 7) cls = "text-[11.5px] font-mono font-medium text-amber";
+  return <span className={cls}>{formatDateForDisplay(date)}</span>;
 }
 
 type StatusPillVariant = Parameters<typeof StatusPill>[0]["variant"];

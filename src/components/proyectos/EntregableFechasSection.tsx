@@ -4,14 +4,7 @@ import type { Entregable } from "@/context/AppDataContext";
 import { Button } from "@/components/ui/button";
 import { EntregableFechasFormFields } from "@/components/entregables/EntregableFechasFormFields";
 import { useEntregableFechasEdit } from "@/hooks/useEntregableFechasEdit";
-
-function fmtDate(iso: string | null | undefined): string {
-  const s = (iso ?? "").trim();
-  if (!s) return "—";
-  const [y, m, d] = s.split("-");
-  if (!y || !m || !d) return s;
-  return `${d}/${m}/${y}`;
-}
+import { formatDateForDisplay } from "@/lib/localDate";
 
 type Props = {
   entregable: Entregable;
@@ -70,22 +63,22 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
       ) : (
         <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
           <dt className="text-t500">Inicio</dt>
-          <dd className="text-t800">{fmtDate(entregable.fecha_inicio)}</dd>
+          <dd className="text-t800">{formatDateForDisplay(entregable.fecha_inicio)}</dd>
           <dt className="text-t500">Término</dt>
-          <dd className="text-t800">{fmtDate(entregable.fecha_termino)}</dd>
+          <dd className="text-t800">{formatDateForDisplay(entregable.fecha_termino)}</dd>
           {conRevisiones ? (
             <>
               <dt className="text-t500">Rev. A</dt>
-              <dd className="text-t800">{fmtDate(entregable.fecha_revA)}</dd>
+              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revA)}</dd>
               <dt className="text-t500">Rev. B</dt>
-              <dd className="text-t800">{fmtDate(entregable.fecha_revB)}</dd>
+              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revB)}</dd>
               <dt className="text-t500">Rev. P</dt>
-              <dd className="text-t800">{fmtDate(entregable.fecha_revP)}</dd>
+              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revP)}</dd>
             </>
           ) : (
             <>
               <dt className="text-t500">Rev. P</dt>
-              <dd className="text-t800">{fmtDate(entregable.fecha_revP ?? entregable.fecha_termino)}</dd>
+              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revP ?? entregable.fecha_termino)}</dd>
             </>
           )}
         </dl>

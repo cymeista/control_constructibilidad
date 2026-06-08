@@ -11,6 +11,7 @@ import {
   horasPendientesAsignacionBloque2,
   sumaHorasGastadasRealesAsignacionBloque2,
 } from "@/entregables/asignacionHoraConsumo";
+import { formatDateForDisplayShort } from "@/lib/localDate";
 
 type Props = {
   open: boolean;
@@ -20,10 +21,7 @@ type Props = {
   onGoAsignaciones: (ctx: { clienteId: string; proyectoId: string; entregableId: string }) => void;
 };
 
-function fmtDate(d: string | null | undefined) {
-  if (!d || !String(d).trim()) return "—";
-  return new Date(d + "T12:00:00").toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "2-digit" });
-}
+const fmtDate = (d: string | null | undefined) => formatDateForDisplayShort(d);
 
 function fmtH(n: number) {
   return n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });

@@ -12,6 +12,7 @@ import {
   Eye,
   CalendarDays,
 } from "lucide-react";
+import { localDateFromDate } from "@/lib/localDate";
 
 /* ─────────── Types ─────────── */
 
@@ -919,8 +920,8 @@ export default function Gantt() {
                             >
                               {renderBarInCell(
                                 {
-                                  fecha_inicio: projStart.toISOString().slice(0, 10),
-                                  fecha_termino: projEnd.toISOString().slice(0, 10),
+                                  fecha_inicio: localDateFromDate(projStart),
+                                  fecha_termino: localDateFromDate(projEnd),
                                   estado: "NO_INICIADO",
                                 },
                                 m,
