@@ -122,6 +122,114 @@ export type EntregableEvaluableOpcion = {
   labelLinea: string;
 };
 
+/** Clave lógica única: profesional + entregable + tipo de evaluación. */
+export function claveEvaluacionEntregable(
+  profesionalId: string,
+  entregableId: string,
+  tipoEvaluacion: TipoEvaluacionEntregable,
+): string {
+  return `${profesionalId.trim()}|${entregableId.trim()}|${tipoEvaluacion}`;
+}
+
+export const MSG_EVALUACION_DUPLICADA =
+  "Ya existe una evaluación para este profesional, entregable y tipo.";
+
+export function existeEvaluacionEntregable(
+  evaluaciones: EvaluacionEntregable[],
+  profesionalId: string,
+  entregableId: string,
+  tipoEvaluacion: TipoEvaluacionEntregable,
+  excludeId?: string,
+): boolean {
+  const clave = claveEvaluacionEntregable(profesionalId, entregableId, tipoEvaluacion);
+  return evaluaciones.some((e) => {
+    if (excludeId && e.id === excludeId) return false;
+    return claveEvaluacionEntregable(e.profesional_id, e.entregable_id, e.tipo_evaluacion) === clave;
+  });
+}
+
+export type EntregablesEvaluablesAgrupados = {
+  disponibles: EntregableEvaluableOpcion[];
+  yaEvaluados: EntregableEvaluableOpcion[];
+};
+
+/** Separa entregables evaluables en disponibles vs ya evaluados para prof + tipo. */
+export function agruparEntregablesEvaluablesPorDisponibilidad(input: {
+  profesionalId: string;
+  tipoEvaluacion: TipoEvaluacionEntregable;
+  evaluaciones_entregables: EvaluacionEntregable[];
+  equipo_entregable: EquipoEntregable[];
+  entregables: Entregable[];
+  proyectos: Proyecto[];
+  clientes: Cliente[];
+  registro_horas: RegistroHora[];
+  profesionales: Profesional[];
+}): EntregablesEvaluablesAgrupados {
+  const todas = listarEntregablesEvaluables(input);
+  const evaluadosIds = new Set(
+    input.evaluaciones_entregables
+      .filter(
+        (e) =>
+          e.profesional_id === input.profesionalId.trim() &&
+          e.tipo_evaluacion === input.tipoEvaluacion,
+      )
+      .map((e) => e.entregable_id),
+  );
+  const disponibles: EntregableEvaluableOpcion[] = [];
+  const yaEvaluados: EntregableEvaluableOpcion[] = [];
+  for (const o of todas) {
+    if (evaluadosIds.has(o.entregableId)) yaEvaluados.push(o);
+    else disponibles.push(o);
+  }
+  return { disponibles, yaEvaluados };
+}
+
+export type EvaluacionDuplicadaResumen = {
+  clave: string;
+  profesionalId: string;
+  entregableId: string;
+  tipoEvaluacion: TipoEvaluacionEntregable;
+  cantidad: number;
+};
+
+/** Detecta combinaciones profesional/entregable/tipo con más de una evaluación. */
+export function listarEvaluacionesDuplicadas(
+  evaluaciones: EvaluacionEntregable[],
+): EvaluacionDuplicadaResumen[] {
+  const counts = new Map<string, EvaluacionDuplicadaResumen>();
+  for (const e of evaluaciones) {
+    const clave = claveEvaluacionEntregable(e.profesional_id, e.entregable_id, e.tipo_evaluacion);
+    const prev = counts.get(clave);
+    if (prev) {
+      prev.cantidad += 1;
+    } else {
+      counts.set(clave, {
+        clave,
+        profesionalId: e.profesional_id,
+        entregableId: e.entregable_id,
+        tipoEvaluacion: e.tipo_evaluacion,
+        cantidad: 1,
+      });
+    }
+  }
+  return [...counts.values()].filter((x) => x.cantidad > 1);
+}
+
+export function evaluacionEsPosibleDuplicado(
+  ev: EvaluacionEntregable,
+  evaluaciones: EvaluacionEntregable[],
+): boolean {
+  const clave = claveEvaluacionEntregable(ev.profesional_id, ev.entregable_id, ev.tipo_evaluacion);
+  let count = 0;
+  for (const e of evaluaciones) {
+    if (claveEvaluacionEntregable(e.profesional_id, e.entregable_id, e.tipo_evaluacion) === clave) {
+      count += 1;
+      if (count > 1) return true;
+    }
+  }
+  return false;
+}
+
 export function listarEntregablesEvaluables(input: {
   profesionalId: string;
   equipo_entregable: EquipoEntregable[];

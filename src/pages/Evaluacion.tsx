@@ -10,6 +10,8 @@ import { useAppData } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
 import { canGestionarEvaluacionEntregable } from "@/security/permissions";
 import {
+  evaluacionEsPosibleDuplicado,
+  listarEvaluacionesDuplicadas,
   notaGeneralGlobal,
   resumenEvaluacionesProfesional,
   TIPO_EVALUACION_LABEL,
@@ -67,6 +69,11 @@ export default function Evaluacion() {
 
   const notaGlobal = useMemo(
     () => notaGeneralGlobal(evaluaciones_entregables),
+    [evaluaciones_entregables],
+  );
+
+  const evaluacionesDuplicadas = useMemo(
+    () => listarEvaluacionesDuplicadas(evaluaciones_entregables),
     [evaluaciones_entregables],
   );
 
@@ -165,6 +172,18 @@ export default function Evaluacion() {
         <h2 className="mb-3 text-[15px] font-semibold text-t900">{profSel.nombre_completo}</h2>
       ) : null}
 
+      {evaluacionesDuplicadas.length > 0 ? (
+        <div
+          className="mb-4 rounded-r8 border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900"
+          role="status"
+        >
+          Existen evaluaciones duplicadas para el mismo profesional/entregable/tipo (
+          {evaluacionesDuplicadas.length} combinación
+          {evaluacionesDuplicadas.length === 1 ? "" : "es"}). No se eliminaron automáticamente; revise el
+          historial marcado como posible duplicado.
+        </div>
+      ) : null}
+
       <div className={`${kpiCardsGridClassName6} mb-6`}>
         <KpiCard
           label="Nota media"
@@ -234,9 +253,17 @@ export default function Evaluacion() {
                 <tbody>
                   {historial.map((ev) => {
                     const view = enrichEvaluacion(ev);
+                    const posibleDuplicado = evaluacionEsPosibleDuplicado(ev, evaluaciones_entregables);
                     return (
                       <tr key={ev.id} className="border-b border-bdr last:border-0">
-                        <td className="px-3 py-2 font-mono text-[11px]">{ev.fecha_evaluacion}</td>
+                        <td className="px-3 py-2 font-mono text-[11px]">
+                          {ev.fecha_evaluacion}
+                          {posibleDuplicado ? (
+                            <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-800">
+                              Posible duplicado
+                            </span>
+                          ) : null}
+                        </td>
                         <td className="px-3 py-2">{view.clienteNombre}</td>
                         <td className="px-3 py-2">{view.proyectoLabel}</td>
                         <td className="max-w-[200px] truncate px-3 py-2" title={view.entregableNombre}>
@@ -276,13 +303,21 @@ export default function Evaluacion() {
             <div className="space-y-2 p-3 md:hidden">
               {historial.map((ev) => {
                 const view = enrichEvaluacion(ev);
+                const posibleDuplicado = evaluacionEsPosibleDuplicado(ev, evaluaciones_entregables);
                 return (
                   <article
                     key={ev.id}
                     className="rounded-r10 border border-bdr bg-white p-3 shadow-sh1"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="font-mono text-[11px] text-t500">{ev.fecha_evaluacion}</p>
+                      <p className="font-mono text-[11px] text-t500">
+                        {ev.fecha_evaluacion}
+                        {posibleDuplicado ? (
+                          <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-800">
+                            Posible duplicado
+                          </span>
+                        ) : null}
+                      </p>
                       <span className="text-[14px] font-bold text-indigo-800">
                         {ev.nota_final.toFixed(1)}
                       </span>

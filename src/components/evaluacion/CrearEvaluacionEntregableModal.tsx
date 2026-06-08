@@ -21,10 +21,12 @@ import { newEvaluacionId } from "@/evaluacion/evaluacionRespaldos";
 import { useAuth } from "@/security/AuthContext";
 import { canUploadEvaluacionRespaldoStorage } from "@/supabase/supabaseEvaluacionStorage";
 import {
+  agruparEntregablesEvaluablesPorDisponibilidad,
   calcularPuntajesEvaluacion,
+  existeEvaluacionEntregable,
   fmtHorasEval,
   fmtPctColaboracion,
-  listarEntregablesEvaluables,
+  MSG_EVALUACION_DUPLICADA,
   preguntasActivasPorTipo,
   puntajePorRespuesta,
   sugerirTipoEvaluacionPorNombreEntregable,
@@ -55,6 +57,7 @@ export default function CrearEvaluacionEntregableModal({
     registro_horas,
     profesionales: profsData,
     preguntas_evaluacion_entregables,
+    evaluaciones_entregables,
     addEvaluacionEntregable,
     addPreguntaEvaluacionEntregable,
   } = useAppData();
@@ -71,6 +74,8 @@ export default function CrearEvaluacionEntregableModal({
   const [nuevaPreguntaCategoria, setNuevaPreguntaCategoria] = useState("Adicional");
   const [mostrarAgregarPregunta, setMostrarAgregarPregunta] = useState(false);
   const [respaldos, setRespaldos] = useState<EvaluacionEntregableRespaldo[]>([]);
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
+  const [mostrarYaEvaluados, setMostrarYaEvaluados] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -82,14 +87,18 @@ export default function CrearEvaluacionEntregableModal({
       setNuevaPreguntaTexto("");
       setMostrarAgregarPregunta(false);
       setRespaldos([]);
+      setErrorGuardado(null);
+      setMostrarYaEvaluados(false);
       setPendingEvaluacionId(newEvaluacionId());
     }
   }, [open, profesionalInicialId]);
 
-  const opciones = useMemo(
+  const { disponibles: opciones, yaEvaluados } = useMemo(
     () =>
-      listarEntregablesEvaluables({
+      agruparEntregablesEvaluablesPorDisponibilidad({
         profesionalId,
+        tipoEvaluacion: tipo,
+        evaluaciones_entregables,
         equipo_entregable: equipo_entregable ?? [],
         entregables,
         proyectos,
@@ -99,6 +108,8 @@ export default function CrearEvaluacionEntregableModal({
       }),
     [
       profesionalId,
+      tipo,
+      evaluaciones_entregables,
       equipo_entregable,
       entregables,
       proyectos,
@@ -107,6 +118,12 @@ export default function CrearEvaluacionEntregableModal({
       profsData,
     ],
   );
+
+  useEffect(() => {
+    if (entregableId && !opciones.some((o) => o.entregableId === entregableId)) {
+      setEntregableId("");
+    }
+  }, [opciones, entregableId]);
 
   const opcionSel = useMemo(
     () => opciones.find((o) => o.entregableId === entregableId) ?? null,
@@ -169,6 +186,19 @@ export default function CrearEvaluacionEntregableModal({
   const handleGuardar = useCallback(() => {
     if (!opcionSel || !puedeGuardar || puntajes.nota_final == null) return;
 
+    if (
+      existeEvaluacionEntregable(
+        evaluaciones_entregables,
+        profesionalId,
+        opcionSel.entregableId,
+        tipo,
+      )
+    ) {
+      setErrorGuardado(MSG_EVALUACION_DUPLICADA);
+      return;
+    }
+    setErrorGuardado(null);
+
     const respuestasRows: EvaluacionEntregableRespuesta[] = preguntas.map((p) => {
       const r = respuestas[p.id] as RespuestaEvaluacionEntregableValor;
       return {
@@ -212,6 +242,7 @@ export default function CrearEvaluacionEntregableModal({
     comentario,
     respaldos,
     pendingEvaluacionId,
+    evaluaciones_entregables,
     addEvaluacionEntregable,
     onGuardado,
     onOpenChange,
@@ -245,6 +276,7 @@ export default function CrearEvaluacionEntregableModal({
               onChange={(e) => {
                 setProfesionalId(e.target.value);
                 setEntregableId("");
+                setErrorGuardado(null);
               }}
               className="h-9 rounded-r6 border border-bdr bg-white px-2 text-[12px]"
             >
@@ -263,12 +295,15 @@ export default function CrearEvaluacionEntregableModal({
             <span className="text-[10px] font-semibold uppercase text-t500">Entregable evaluable</span>
             <select
               value={entregableId}
-              onChange={(e) => setEntregableId(e.target.value)}
+              onChange={(e) => {
+                setEntregableId(e.target.value);
+                setErrorGuardado(null);
+              }}
               disabled={!profesionalId}
               className="h-9 rounded-r6 border border-bdr bg-white px-2 text-[12px] disabled:opacity-50"
             >
               <option value="">
-                {opciones.length === 0 ? "Sin entregables evaluables" : "Seleccionar…"}
+                {opciones.length === 0 ? "Sin entregables disponibles" : "Seleccionar…"}
               </option>
               {opciones.map((o) => (
                 <option key={o.entregableId} value={o.entregableId}>
@@ -277,6 +312,31 @@ export default function CrearEvaluacionEntregableModal({
               ))}
             </select>
           </label>
+
+          {yaEvaluados.length > 0 ? (
+            <div className="rounded-r8 border border-bdr bg-surface2/30">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold text-t600"
+                onClick={() => setMostrarYaEvaluados((v) => !v)}
+              >
+                Ya evaluados ({yaEvaluados.length})
+                <span className="text-t400">{mostrarYaEvaluados ? "▲" : "▼"}</span>
+              </button>
+              {mostrarYaEvaluados ? (
+                <ul className="space-y-1 border-t border-bdr px-3 py-2 text-[11px] text-t500">
+                  {yaEvaluados.map((o) => (
+                    <li key={o.entregableId} className="opacity-70">
+                      {o.labelLinea}
+                      <span className="ml-1 text-[10px] text-t400">
+                        — Ya existe evaluación para este profesional y entregable.
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
 
           {opcionSel ? (
             <EntregableResumenCard opcion={opcionSel} />
@@ -294,13 +354,22 @@ export default function CrearEvaluacionEntregableModal({
                       ? "border-indigo-600 bg-indigo-50 text-indigo-800"
                       : "border-bdr bg-white text-t700"
                   }`}
-                  onClick={() => setTipo(t)}
+                  onClick={() => {
+                    setTipo(t);
+                    setErrorGuardado(null);
+                  }}
                 >
                   {t === "TALLER" ? "Taller" : "Entregable"}
                 </button>
               ))}
             </div>
           </fieldset>
+
+          {errorGuardado ? (
+            <p className="rounded-r6 border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-800">
+              {errorGuardado}
+            </p>
+          ) : null}
 
           <div className="rounded-r8 border border-indigo-100 bg-indigo-50/50 px-3 py-2 font-mono text-[12px] text-indigo-900">
             {puntajes.puntaje_obtenido.toLocaleString("es-CL", { maximumFractionDigits: 1 })} /{" "}
