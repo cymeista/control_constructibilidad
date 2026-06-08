@@ -1,14 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Calendar } from "lucide-react";
 import type { Entregable } from "@/context/AppDataContext";
-import { useAppData } from "@/context/AppDataContext";
 import { Button } from "@/components/ui/button";
-import {
-  buildEntregablePatchFromFechasDraft,
-  entregableToFechasInput,
-  validateEntregableFechas,
-  type EntregableFechasInput,
-} from "@/entregables/entregableFechasValidation";
+import { EntregableFechasFormFields } from "@/components/entregables/EntregableFechasFormFields";
+import { useEntregableFechasEdit } from "@/hooks/useEntregableFechasEdit";
 
 function fmtDate(iso: string | null | undefined): string {
   const s = (iso ?? "").trim();
@@ -18,86 +13,26 @@ function fmtDate(iso: string | null | undefined): string {
   return `${d}/${m}/${y}`;
 }
 
-function DateField({
-  label,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="flex flex-col gap-1 text-[10px] text-t500">
-      {label}
-      <input
-        type="date"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-full rounded-r6 border border-bdr bg-white px-2 text-[12px] text-t800 disabled:opacity-60"
-      />
-    </label>
-  );
-}
-
 type Props = {
   entregable: Entregable;
   puedeEditar: boolean;
 };
 
 export default function EntregableFechasSection({ entregable, puedeEditar }: Props) {
-  const { updateEntregable } = useAppData();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<EntregableFechasInput>(() => entregableToFechasInput(entregable));
-  const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
-
-  const tipoFlujo = entregable.tipo_flujo || "CON_REVISIONES";
-  const conRevisiones = tipoFlujo === "CON_REVISIONES";
-
-  const resetDraft = useCallback(() => {
-    setDraft(entregableToFechasInput(entregable));
-    setError(null);
-    setSavedOk(false);
-  }, [entregable]);
+  const { draft, error, conRevisiones, resetDraft, handleDraftChange, guardar } =
+    useEntregableFechasEdit(entregable);
 
   useEffect(() => {
     if (!editing) resetDraft();
   }, [entregable, editing, resetDraft]);
 
-  const handleDraftChange = (patch: Partial<EntregableFechasInput>) => {
-    setSavedOk(false);
-    setError(null);
-    setDraft((prev) => {
-      const next = { ...prev, ...patch };
-      if (tipoFlujo === "SIN_REVISIONES" && patch.fecha_termino != null) {
-        next.fecha_revP = patch.fecha_termino;
-        next.fecha_revA = null;
-        next.fecha_revB = null;
-      }
-      return next;
-    });
-  };
-
   const handleGuardar = () => {
-    setError(null);
-    setSavedOk(false);
-    const input: EntregableFechasInput = {
-      ...draft,
-      tipo_flujo: tipoFlujo,
-    };
-    const v = validateEntregableFechas(input);
-    if (!v.ok) {
-      setError(v.message);
-      return;
+    if (guardar()) {
+      setEditing(false);
+      setSavedOk(true);
     }
-    const patch = buildEntregablePatchFromFechasDraft(entregable, input);
-    updateEntregable(entregable.id, patch);
-    setEditing(false);
-    setSavedOk(true);
   };
 
   const handleCancelar = () => {
@@ -129,40 +64,8 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
       ) : null}
 
       {editing && puedeEditar ? (
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <DateField
-            label="Fecha inicio"
-            value={draft.fecha_inicio}
-            onChange={(v) => handleDraftChange({ fecha_inicio: v })}
-          />
-          <DateField
-            label="Fecha término"
-            value={draft.fecha_termino}
-            onChange={(v) => handleDraftChange({ fecha_termino: v })}
-          />
-          {conRevisiones ? (
-            <>
-              <DateField
-                label="Revisión A"
-                value={draft.fecha_revA ?? ""}
-                onChange={(v) => handleDraftChange({ fecha_revA: v })}
-              />
-              <DateField
-                label="Revisión B"
-                value={draft.fecha_revB ?? ""}
-                onChange={(v) => handleDraftChange({ fecha_revB: v })}
-              />
-              <DateField
-                label="Revisión P"
-                value={draft.fecha_revP ?? ""}
-                onChange={(v) => handleDraftChange({ fecha_revP: v })}
-              />
-            </>
-          ) : (
-            <div className="sm:col-span-2 text-[11px] text-t600">
-              Rev.P se iguala automáticamente a la fecha de término.
-            </div>
-          )}
+        <div className="mt-3">
+          <EntregableFechasFormFields draft={draft} conRevisiones={conRevisiones} onChange={handleDraftChange} />
         </div>
       ) : (
         <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
@@ -218,6 +121,7 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
               className="min-h-[36px] text-[11px]"
               onClick={() => {
                 resetDraft();
+                setSavedOk(false);
                 setEditing(true);
               }}
             >

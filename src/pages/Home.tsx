@@ -40,12 +40,13 @@ import {
 } from "chart.js";
 import ChartJsLineFrame from "@/components/ChartJsLineFrame";
 import { format } from "date-fns";
-import { ChevronDown, ChevronRight, StickyNote } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, StickyNote } from "lucide-react";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
+import { EntregableFechasEditModal } from "@/components/entregables/EntregableFechasEditModal";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/security/AuthContext";
-import { canEditAvance, canEditNotas } from "@/security/permissions";
+import { canAccederFormularios, canEditAvance, canEditNotas } from "@/security/permissions";
 
 ChartJS.register(
   CategoryScale,
@@ -251,7 +252,9 @@ function DashboardEntregableSeguimientoCard({
   hp,
   avanceTeoricoVista,
   puedeEditarNotas,
+  puedeEditarFechas,
   onNota,
+  onEditarFechas,
 }: {
   e: Entregable;
   clienteNombre: string;
@@ -266,7 +269,9 @@ function DashboardEntregableSeguimientoCard({
   hp: number;
   avanceTeoricoVista: number;
   puedeEditarNotas: boolean;
+  puedeEditarFechas: boolean;
   onNota: () => void;
+  onEditarFechas: () => void;
 }) {
   const codigo = codigoFaseEntregable(e);
   return (
@@ -302,6 +307,20 @@ function DashboardEntregableSeguimientoCard({
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
         <div className="min-w-0 space-y-1">
+          <div className="mb-1 flex items-center justify-between gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-t500">Fechas acordadas</span>
+            {puedeEditarFechas ? (
+              <button
+                type="button"
+                onClick={onEditarFechas}
+                className="inline-flex items-center gap-1 rounded-r6 border border-bdr px-1.5 py-0.5 text-[9px] font-semibold text-t600 hover:bg-surface2"
+                title="Editar fechas del entregable"
+              >
+                <Calendar className="h-3 w-3" />
+                Editar fechas
+              </button>
+            ) : null}
+          </div>
           <CardCampoCompacto label="Rev. A">
             <DateCell date={e.fecha_revA} />
           </CardCampoCompacto>
@@ -311,6 +330,11 @@ function DashboardEntregableSeguimientoCard({
           <CardCampoCompacto label="Rev. P">
             <DateCell date={e.fecha_revP} />
           </CardCampoCompacto>
+          {e.fecha_inicio?.trim() ? (
+            <CardCampoCompacto label="Inicio">
+              <DateCell date={e.fecha_inicio} />
+            </CardCampoCompacto>
+          ) : null}
           {e.fecha_termino?.trim() ? (
             <CardCampoCompacto label="Término">
               <DateCell date={e.fecha_termino} />
@@ -451,6 +475,8 @@ export default function Home() {
   const { updateEntregable } = data;
   const { role } = useAuth();
   const puedeEditarNotas = role ? canEditNotas(role) : false;
+  const puedeEditarFechas = role ? canAccederFormularios(role) : false;
+  const [fechasEditEntregableId, setFechasEditEntregableId] = useState<string | null>(null);
   const [factor, setFactor] = useState(85);
   const [clienteFilter, setClienteFilter] = useState("");
   const [proyectoFilter, setProyectoFilter] = useState("");
@@ -1378,7 +1404,9 @@ export default function Home() {
                                       hp={hp}
                                       avanceTeoricoVista={avanceTeoricoVista}
                                       puedeEditarNotas={puedeEditarNotas}
+                                      puedeEditarFechas={puedeEditarFechas}
                                       onNota={() => setNotaSegEntregableId(e.id)}
+                                      onEditarFechas={() => setFechasEditEntregableId(e.id)}
                                     />
                                   );
                                 })}
@@ -1464,6 +1492,17 @@ export default function Home() {
                                           <td className="max-w-[240px] px-2 py-2 align-top">
                                             <div className="flex flex-wrap items-center gap-2">
                                               <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} />
+                                              {puedeEditarFechas ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setFechasEditEntregableId(e.id)}
+                                                  className="inline-flex items-center gap-1 rounded-r6 border border-bdr px-2 py-1 text-[10px] font-semibold text-t600 hover:bg-surface2"
+                                                  title="Editar fechas del entregable"
+                                                >
+                                                  <Calendar className="h-3.5 w-3.5" />
+                                                  Fechas
+                                                </button>
+                                              ) : null}
                                             </div>
                                           </td>
                                           <td className="px-2 py-2">
@@ -1585,6 +1624,23 @@ export default function Home() {
             </>
           )}
         </div>
+
+        {fechasEditEntregableId ? (() => {
+          const e = data.entregables.find((x) => x.id === fechasEditEntregableId);
+          if (!e) return null;
+          const p = data.proyectos.find((pr) => pr.id === e.proyecto_id);
+          return (
+            <EntregableFechasEditModal
+              open
+              onOpenChange={(v) => {
+                if (!v) setFechasEditEntregableId(null);
+              }}
+              entregable={e}
+              proyectoCodigo={p?.codigo}
+              proyectoNombre={p?.nombre}
+            />
+          );
+        })() : null}
 
         <EntregableNotaSeguimientoModal
           open={notaSegEntregableId != null}
