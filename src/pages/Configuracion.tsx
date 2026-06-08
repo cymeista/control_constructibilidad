@@ -58,6 +58,9 @@ import {
   MSG_LOGIN_SUPABASE,
 } from "@/security/permissions";
 import PreviewMigracionEquipoEntregablePanel from "@/components/PreviewMigracionEquipoEntregablePanel";
+import SyncLideresEquipoPanel, {
+  SyncLideresEquipoSettingsCard,
+} from "@/components/configuracion/SyncLideresEquipoPanel";
 
 /* ─────────── Settings Hook ─────────── */
 
@@ -1083,6 +1086,14 @@ export default function Configuracion() {
           </a>
         </SettingsCard>
       </div>
+
+      {role === "ADMIN" ? (
+        <div className="mt-6">
+          <SyncLideresEquipoSettingsCard>
+            <SyncLideresEquipoPanel />
+          </SyncLideresEquipoSettingsCard>
+        </div>
+      ) : null}
 
       {role === "ADMIN" ? (
         <SettingsCard title="Previsualización migración equipo entregable" icon={UsersRound}>

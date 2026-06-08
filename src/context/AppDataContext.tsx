@@ -26,8 +26,12 @@ import {
 import { computePreviewMigracionEquipoEntregable } from "@/equipo/previewMigracionEquipoEntregable";
 import { aplicarReglaUnicoLider } from "@/equipo/equipoEntregableRules";
 import {
+  auditarSincronizacionLideresConEquipo,
   removerPorDefinirDelEquipoEntregable,
+  repararLideresEntregablesConEquipo,
   sincronizarEntregablesLiderId,
+  sincronizarLiderEntregableConEquipo,
+  type AuditoriaLiderEquipoItem,
 } from "@/equipo/syncEntregableLider";
 import { recomputarConsumoEnEntregables } from "@/entregables/registroHoraConsumo";
 import {
@@ -574,6 +578,14 @@ interface AppDataContextValue extends AppData {
     rol_en_entregable: AsignacionHoraRol,
   ) => { ok: true; liderAnteriorPasadoApoyo: boolean } | { ok: false; error: string };
   quitarIntegranteEquipoEntregable: (equipoId: string) => void;
+  /** Auditoría: entregables cuyo lider_id no coincide con equipo_entregable. */
+  auditarLideresEntregablesConEquipo: () => AuditoriaLiderEquipoItem[];
+  /** ADMIN: alinea equipo_entregable con lider_id de cada entregable (sin tocar RegistroHora). */
+  sincronizarLideresEntregablesConEquipo: () => {
+    ok: true;
+    corregidos: number;
+    pendientes: AuditoriaLiderEquipoItem[];
+  };
   addPipeline: (p: Omit<Pipeline, "id" | "created_at" | "updated_at">) => void;
   updatePipeline: (id: string, p: Partial<Pipeline>) => void;
   deletePipeline: (id: string) => void;
@@ -1527,7 +1539,21 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         prev.proyectos,
         prev.profesionales,
       );
-      return { ...prev, entregables, asignaciones_horas };
+      const syncLider = "lider_id" in safePatch;
+      if (!syncLider) {
+        return { ...prev, entregables, asignaciones_horas };
+      }
+      const updated = entregables.find((x) => x.id === id);
+      const equipo_entregable = updated
+        ? sincronizarLiderEntregableConEquipo(
+            id,
+            updated.lider_id,
+            prev.equipo_entregable ?? [],
+            prev.profesionales,
+            { uid, ts },
+          )
+        : prev.equipo_entregable;
+      return { ...prev, entregables, asignaciones_horas, equipo_entregable };
     });
   }, []);
 
@@ -1551,7 +1577,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         prev.proyectos,
         prev.profesionales,
       );
-      return { ...prev, entregables };
+      const ts = now();
+      const equipo_entregable = sincronizarLiderEntregableConEquipo(
+        full.id,
+        full.lider_id,
+        prev.equipo_entregable ?? [],
+        prev.profesionales,
+        { uid, ts },
+      );
+      return { ...prev, entregables, equipo_entregable };
     });
   },
   [],
@@ -1902,6 +1936,36 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  const auditarLideresEntregablesConEquipo = useCallback(() => {
+    return auditarSincronizacionLideresConEquipo(
+      data.entregables,
+      data.equipo_entregable ?? [],
+      data.profesionales,
+    );
+  }, [data.entregables, data.equipo_entregable, data.profesionales]);
+
+  const sincronizarLideresEntregablesConEquipo = useCallback(() => {
+    let corregidos = 0;
+    let pendientes: AuditoriaLiderEquipoItem[] = [];
+    setData((prev) => {
+      const ts = now();
+      const res = repararLideresEntregablesConEquipo(
+        prev.entregables,
+        prev.equipo_entregable ?? [],
+        prev.profesionales,
+        { uid, ts },
+      );
+      corregidos = res.corregidos;
+      pendientes = auditarSincronizacionLideresConEquipo(
+        prev.entregables,
+        res.equipo,
+        prev.profesionales,
+      );
+      return { ...prev, equipo_entregable: res.equipo };
+    });
+    return { ok: true as const, corregidos, pendientes };
+  }, []);
 
   const quitarIntegranteEquipoEntregable = useCallback((equipoId: string) => {
     setData((prev) => {
@@ -2562,6 +2626,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     agregarIntegranteEquipoEntregable,
     cambiarRolIntegranteEquipoEntregable,
     quitarIntegranteEquipoEntregable,
+    auditarLideresEntregablesConEquipo,
+    sincronizarLideresEntregablesConEquipo,
     addPipeline: pipelineCrud.add,
     updatePipeline: pipelineCrud.update,
     deletePipeline: pipelineCrud.delete,
