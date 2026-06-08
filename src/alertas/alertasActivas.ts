@@ -55,6 +55,9 @@ export type AlertaActiva = {
   detalle?: string;
 };
 
+/** Dónde se muestran las alertas; Proyectos excluye tipos analíticos no accionables ahí. */
+export type ContextoAlertasActivas = "PROYECTOS" | "ANALITICO" | "TODAS";
+
 export type AlertasActivasAppSlice = {
   entregable: Entregable;
   proyecto: Proyecto;
@@ -64,7 +67,20 @@ export type AlertasActivasAppSlice = {
   equipo_entregable: EquipoEntregable[];
   entregables?: Entregable[];
   proyectos?: Proyecto[];
+  /** Por defecto `TODAS` (sin filtrar). Proyectos usa `PROYECTOS`. */
+  contexto?: ContextoAlertasActivas;
 };
+
+/** Tipos que no se muestran ni cuentan en la vista Proyectos. */
+const TIPOS_EXCLUIDOS_CONTEXTO_PROYECTOS: ReadonlySet<TipoAlertaActiva> = new Set(["GASTO_VS_AVANCE"]);
+
+export function filtrarAlertasActivasPorContexto(
+  alertas: AlertaActiva[],
+  contexto: ContextoAlertasActivas = "TODAS",
+): AlertaActiva[] {
+  if (contexto !== "PROYECTOS") return alertas;
+  return alertas.filter((a) => !TIPOS_EXCLUIDOS_CONTEXTO_PROYECTOS.has(a.tipo));
+}
 
 export function etiquetaCortaAlertaActiva(tipo: TipoAlertaActiva): string {
   switch (tipo) {
@@ -301,7 +317,7 @@ export function calcularAlertasActivasEntregable(input: AlertasActivasAppSlice):
     });
   }
 
-  return alertas;
+  return filtrarAlertasActivasPorContexto(alertas, input.contexto ?? "TODAS");
 }
 
 export function entregableTieneAlertasActivas(alertas: AlertaActiva[]): boolean {

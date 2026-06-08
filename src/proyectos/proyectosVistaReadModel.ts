@@ -366,6 +366,7 @@ export function construirAnalisisEntregablesVista(input: {
       equipo_entregable,
       entregables,
       proyectos,
+      contexto: "PROYECTOS",
     });
     const flags = derivarFlagsAlertaLegacy(alertasActivas);
 
