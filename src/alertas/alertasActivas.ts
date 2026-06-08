@@ -72,7 +72,10 @@ export type AlertasActivasAppSlice = {
 };
 
 /** Tipos que no se muestran ni cuentan en la vista Proyectos. */
-const TIPOS_EXCLUIDOS_CONTEXTO_PROYECTOS: ReadonlySet<TipoAlertaActiva> = new Set(["GASTO_VS_AVANCE"]);
+const TIPOS_EXCLUIDOS_CONTEXTO_PROYECTOS: ReadonlySet<TipoAlertaActiva> = new Set([
+  "GASTO_VS_AVANCE",
+  "SIN_LIDER_VALIDO",
+]);
 
 export function filtrarAlertasActivasPorContexto(
   alertas: AlertaActiva[],
