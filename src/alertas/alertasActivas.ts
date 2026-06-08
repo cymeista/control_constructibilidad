@@ -91,6 +91,102 @@ export function etiquetaCortaAlertaActiva(tipo: TipoAlertaActiva): string {
   }
 }
 
+/** Profesional declarado operativamente en el entregable (LIDER o APOYO). */
+export function profesionalDeclaradoEnEquipoEntregable(
+  entregableId: string,
+  profesionalId: string,
+  equipo_entregable: EquipoEntregable[],
+): boolean {
+  const eid = entregableId.trim();
+  const pid = profesionalId.trim();
+  if (!eid || !pid) return false;
+  return equipo_entregable.some(
+    (eq) =>
+      (eq.entregable_id ?? "").trim() === eid &&
+      (eq.profesional_id ?? "").trim() === pid &&
+      (eq.rol_en_entregable === "LIDER" || eq.rol_en_entregable === "APOYO"),
+  );
+}
+
+/** Gasto real DIRECTA válido sin fila en equipo_entregable (alerta principal Proyectos). */
+export function calcularAlertasGastoSinEquipoEntregable(input: AlertasActivasAppSlice): AlertaActiva[] {
+  const { entregable: ent, proyecto: pr, profesionales, registro_horas, equipo_entregable } = input;
+  const eid = (ent.id ?? "").trim();
+  if (!eid) return [];
+
+  const entregablesCtx = input.entregables ?? [ent];
+  const proyectosCtx = input.proyectos ?? [pr];
+  const gastoSinEquipo = listarProfesionalesGastoSinEquipoDeclarado(
+    eid,
+    equipo_entregable,
+    profesionales,
+    registro_horas,
+    entregablesCtx,
+    proyectosCtx,
+  );
+
+  return gastoSinEquipo
+    .filter((g) => !profesionalDeclaradoEnEquipoEntregable(eid, g.profesional_id, equipo_entregable))
+    .map((g) => ({
+      tipo: "GASTO_SIN_EQUIPO" as const,
+      id: `sin-equipo-${g.profesional_id}`,
+      etiqueta: etiquetaCortaAlertaActiva("GASTO_SIN_EQUIPO"),
+      detalle: `${g.nombre} (${g.horas_reales.toFixed(1)} h)`,
+    }));
+}
+
+/**
+ * Advertencia legacy por asignaciones_horas (no cuenta en contadores principales de Proyectos).
+ * Solo aplica si el profesional ya está en equipo_entregable pero sin asignación legacy.
+ */
+export function calcularAdvertenciasLegacyAsignacionEntregable(input: AlertasActivasAppSlice): AlertaActiva[] {
+  const {
+    entregable: ent,
+    proyecto: pr,
+    profesionales,
+    registro_horas,
+    asignaciones_horas,
+    equipo_entregable,
+  } = input;
+  const eid = (ent.id ?? "").trim();
+  if (!eid) return [];
+
+  const profMap = new Map(profesionales.map((p) => [p.id, p]));
+  const entregablesCtx = input.entregables ?? [ent];
+  const proyectosCtx = input.proyectos ?? [pr];
+  const { entById, projById, profById } = buildConsumoMaps(entregablesCtx, proyectosCtx, profesionales);
+  const registrosValidos = registro_horas.filter((r) =>
+    esRegistroConsumoRealValido(r, entById, projById, profById),
+  );
+
+  const gastoProf = new Map<string, number>();
+  for (const r of registrosValidos) {
+    if ((r.entregable_id ?? "").trim() !== eid) continue;
+    const pid = (r.profesional_id ?? "").trim();
+    if (!pid) continue;
+    gastoProf.set(pid, (gastoProf.get(pid) ?? 0) + Number(r.horas));
+  }
+
+  const asigsEnt = asignaciones_horas.filter((a) => a.entregable_id === eid);
+  const out: AlertaActiva[] = [];
+
+  for (const [pid, horasTrabajadas] of gastoProf) {
+    if (horasTrabajadas <= 0) continue;
+    if (!profesionalDeclaradoEnEquipoEntregable(eid, pid, equipo_entregable)) continue;
+    const asigsProfEnt = asigsEnt.filter((a) => a.profesional_id === pid);
+    if (asigsProfEnt.length > 0) continue;
+    const nombre = profMap.get(pid)?.nombre_completo ?? pid;
+    out.push({
+      tipo: "GASTO_SIN_ASIGNACION",
+      id: `legacy-sin-asig-${pid}`,
+      etiqueta: "Sin asignación legacy",
+      detalle: `${nombre}: en equipo pero sin fila en asignaciones_horas`,
+    });
+  }
+
+  return out;
+}
+
 function alertasDeficitCategoria(control: CategoriaControlRow[]): AlertaActiva[] {
   const out: AlertaActiva[] = [];
   for (const row of control) {
@@ -115,14 +211,7 @@ function alertasDeficitCategoria(control: CategoriaControlRow[]): AlertaActiva[]
 
 /** Condiciones vigentes sobre un entregable (fuente de verdad para contadores en Proyectos). */
 export function calcularAlertasActivasEntregable(input: AlertasActivasAppSlice): AlertaActiva[] {
-  const {
-    entregable: ent,
-    proyecto: pr,
-    profesionales,
-    registro_horas,
-    asignaciones_horas,
-    equipo_entregable,
-  } = input;
+  const { entregable: ent, proyecto: pr, profesionales, registro_horas, equipo_entregable } = input;
 
   const eid = (ent.id ?? "").trim();
   if (!eid) return [];
@@ -172,37 +261,7 @@ export function calcularAlertasActivasEntregable(input: AlertasActivasAppSlice):
     });
   }
 
-  const asigsEnt = asignaciones_horas.filter((a) => a.entregable_id === eid);
-  for (const [pid, horasTrabajadas] of gastoProf) {
-    if (horasTrabajadas <= 0) continue;
-    const asigsProfEnt = asigsEnt.filter((a) => a.profesional_id === pid);
-    if (asigsProfEnt.length === 0) {
-      const nombre = profMap.get(pid)?.nombre_completo ?? pid;
-      alertas.push({
-        tipo: "GASTO_SIN_ASIGNACION",
-        id: `sin-asig-${pid}`,
-        etiqueta: etiquetaCortaAlertaActiva("GASTO_SIN_ASIGNACION"),
-        detalle: nombre,
-      });
-    }
-  }
-
-  const gastoSinEquipo = listarProfesionalesGastoSinEquipoDeclarado(
-    eid,
-    equipo_entregable,
-    profesionales,
-    registro_horas,
-    entregablesCtx,
-    proyectosCtx,
-  );
-  for (const g of gastoSinEquipo) {
-    alertas.push({
-      tipo: "GASTO_SIN_EQUIPO",
-      id: `sin-equipo-${g.profesional_id}`,
-      etiqueta: etiquetaCortaAlertaActiva("GASTO_SIN_EQUIPO"),
-      detalle: `${g.nombre} (${g.horas_reales.toFixed(1)} h)`,
-    });
-  }
+  alertas.push(...calcularAlertasGastoSinEquipoEntregable(input));
 
   const lid = (ent.lider_id ?? "").trim();
   if (!lid) {
@@ -277,7 +336,7 @@ export function derivarFlagsAlertaLegacy(alertas: AlertaActiva[]): {
   return {
     alertaSobreconsumoHoras: tipos.has("SOBRECONSUMO_HORAS") || tipos.has("SOBRECONSUMO_CATEGORIA"),
     alertaGastoVsAvance: tipos.has("GASTO_VS_AVANCE"),
-    alertaSinAsignacion: tipos.has("GASTO_SIN_ASIGNACION") || tipos.has("GASTO_SIN_EQUIPO"),
+    alertaSinAsignacion: tipos.has("GASTO_SIN_EQUIPO"),
   };
 }
 
