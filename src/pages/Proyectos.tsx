@@ -24,7 +24,6 @@ import {
   canAccederFormularios,
 } from "@/security/permissions";
 import {
-  TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   agregarTotalesKpiSinL2,
   construirAnalisisEntregablesVista,
   filtrarAnalisisVista,
@@ -33,18 +32,36 @@ import {
   estadoProyectoLabel,
   ESTADOS_PROYECTO,
   listarProyectosNoIniciadoConActividad,
-  proyectoTieneActividadRealDesdeFilas,
   type EntregableVistaAnalisis,
   type EstadoProyecto,
   type FiltroEstadoProyectoVista,
 } from "@/proyectos/proyectosVistaReadModel";
 import type { Proyecto } from "@/context/AppDataContext";
 import { historialRedistribucionPorEntregable } from "@/entregables/redistribucionHorasEntregable";
+import {
+  claseBadgeAlertaActiva,
+  entregableTieneAlertasActivas,
+  TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
+  type AlertaActiva,
+} from "@/alertas/alertasActivas";
 
 const fmtH = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmtUF = (n: number) => n.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPct = (n: number | null) =>
   n == null ? "—" : `${n.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+function BadgesAlertasActivas({ alertas, className = "" }: { alertas: AlertaActiva[]; className?: string }) {
+  if (!alertas.length) return null;
+  return (
+    <div className={`flex flex-wrap gap-1.5 ${className}`}>
+      {alertas.map((a) => (
+        <span key={a.id} className={claseBadgeAlertaActiva(a.tipo)} title={a.detalle}>
+          {a.etiqueta}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 const fmtDate = (d: string | null) =>
   d && d.trim()
     ? new Date(d + "T12:00:00").toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "2-digit" })
@@ -183,6 +200,7 @@ export default function Proyectos() {
     profesionales,
     registro_horas,
     asignaciones_horas,
+    equipo_entregable,
     historial_redistribuciones_horas,
     pm_internos,
     updateEntregable,
@@ -214,6 +232,7 @@ export default function Proyectos() {
         profesionales,
         registro_horas,
         asignaciones_horas,
+        equipo_entregable,
         historial_redistribuciones_horas,
       }),
     [
@@ -223,6 +242,7 @@ export default function Proyectos() {
       profesionales,
       registro_horas,
       asignaciones_horas,
+      equipo_entregable,
       historial_redistribuciones_horas,
     ],
   );
@@ -280,7 +300,7 @@ export default function Proyectos() {
 
   const drawerRowLive = useMemo(() => {
     if (!drawerRow) return null;
-    return analisisBase.find((r) => r.entregable.id === drawerRow.entregable.id) ?? drawerRow;
+    return analisisBase.find((r) => r.entregable.id === drawerRow.entregable.id) ?? null;
   }, [drawerRow, analisisBase]);
 
   const proyectosNoIniciadoConActividad = useMemo(
@@ -308,9 +328,7 @@ export default function Proyectos() {
     const proySobre = new Set(
       filasFiltradas.filter((r) => r.alertaSobreconsumoHoras).map((r) => r.proyecto.id),
     ).size;
-    const entAlerta = filasFiltradas.filter(
-      (r) => r.alertaSobreconsumoHoras || r.alertaGastoVsAvance || r.alertaSinAsignacion,
-    ).length;
+    const entAlerta = filasFiltradas.filter((r) => entregableTieneAlertasActivas(r.alertasActivas)).length;
     const ufPres = filasFiltradas.reduce((s, r) => s + r.ufPresup, 0);
     const ufGas = filasFiltradas.reduce((s, r) => s + r.ufGasto, 0);
     const hPres = filasFiltradas.reduce((s, r) => s + r.horasPresupuesto, 0);
@@ -621,9 +639,7 @@ export default function Proyectos() {
                         {bloque.proyectos.map((grp) => {
                           const pid = grp.proyecto.id;
                           const openP = openProyectos.has(pid);
-                          const proyectoInconsistente =
-                            grp.proyecto.estado === "NO_INICIADO" &&
-                            proyectoTieneActividadRealDesdeFilas(pid, analisisBase);
+                          const proyectoInconsistente = grp.flags.proyectoNoIniciadoConActividad;
                           const pmNombre =
                             (grp.proyecto.pm_interno_id && pmMap.get(grp.proyecto.pm_interno_id)?.nombre) ||
                             grp.proyecto.pm_nombre ||
@@ -677,8 +693,14 @@ export default function Proyectos() {
                                         Completado
                                       </span>
                                     ) : null}
+                                    {grp.nAlertasActivas > 0 ? (
+                                      <span className="rounded-r4 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-900">
+                                        {grp.nAlertasActivas} alerta(s)
+                                      </span>
+                                    ) : null}
                                     <span className="text-[10px] text-t500">
-                                      {grp.nEntregables} entregable(s) · {grp.nEntregablesAlerta} con alerta
+                                      {grp.nEntregables} entregable(s)
+                                      {grp.nEntregablesAlerta > 0 ? ` · ${grp.nEntregablesAlerta} con alerta` : ""}
                                     </span>
                                   </div>
                                   <div className="mt-1 text-[10px] text-t600">
@@ -781,28 +803,14 @@ export default function Proyectos() {
                                                   </span>
                                                 </MobileCardRow>
                                               </div>
-                                              <div className="flex flex-wrap gap-1.5 text-[10px]">
-                                                {row.alertaSobreconsumoHoras ? (
-                                                  <span className="rounded-r6 border border-rose-300 bg-rose-50 px-2 py-1 font-semibold text-rose-800">
-                                                    Sobreconsumo
-                                                  </span>
-                                                ) : null}
-                                                {row.alertaGastoVsAvance ? (
-                                                  <span className="rounded-r6 border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-800">
-                                                    Riesgo gasto vs avance
-                                                  </span>
-                                                ) : null}
-                                                {row.alertaSinAsignacion ? (
-                                                  <span className="rounded-r6 border border-slate-300 bg-slate-50 px-2 py-1 font-semibold text-slate-800">
-                                                    Sin asignación
-                                                  </span>
-                                                ) : null}
-                                                {row.redistribuido ? (
+                                              <BadgesAlertasActivas alertas={row.alertasActivas} className="text-[10px]" />
+                                              {row.redistribuido ? (
+                                                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px]">
                                                   <span className="rounded-r6 border border-teal-300 bg-teal-50 px-2 py-1 font-semibold text-teal-800">
                                                     Redistribuido
                                                   </span>
-                                                ) : null}
-                                              </div>
+                                                </div>
+                                              ) : null}
                                               <div className="mt-3 flex flex-wrap gap-2 border-t border-bdr pt-3">
                                                 <Button
                                                   type="button"
@@ -940,21 +948,15 @@ export default function Proyectos() {
                                               <td className={`px-2 py-1.5 tabular-nums ${consStyle}`}>{fmtPct(cons)}</td>
                                               <td className="px-2 py-1.5">
                                                 <div className="flex flex-wrap gap-0.5">
-                                                  {row.alertaSobreconsumoHoras ? (
-                                                    <span className="rounded-r4 bg-rose-500/15 px-1 py-0.5 text-[8px] font-bold uppercase text-rose-900">
-                                                      Sobreconsumo
+                                                  {row.alertasActivas.map((a) => (
+                                                    <span
+                                                      key={a.id}
+                                                      className="rounded-r4 bg-amber-500/10 px-1 py-0.5 text-[8px] font-bold uppercase text-amber-950"
+                                                      title={a.detalle}
+                                                    >
+                                                      {a.etiqueta}
                                                     </span>
-                                                  ) : null}
-                                                  {row.alertaGastoVsAvance ? (
-                                                    <span className="rounded-r4 bg-amber-500/15 px-1 py-0.5 text-[8px] font-bold uppercase text-amber-900">
-                                                      Riesgo
-                                                    </span>
-                                                  ) : null}
-                                                  {row.alertaSinAsignacion ? (
-                                                    <span className="rounded-r4 bg-slate-500/15 px-1 py-0.5 text-[8px] font-bold uppercase text-slate-800">
-                                                      Sin asign.
-                                                    </span>
-                                                  ) : null}
+                                                  ))}
                                                   {row.redistribuido ? (
                                                     <span className="rounded-r4 bg-teal-500/15 px-1 py-0.5 text-[8px] font-bold uppercase text-teal-900">
                                                       Redist.
@@ -1127,32 +1129,22 @@ export default function Proyectos() {
                       {fmtH(drawerRowLive.saldoHoras)}
                     </dd>
                     <dt className="text-t500">Alertas activas</dt>
-                    <dd className="flex flex-wrap gap-1">
-                      {drawerRowLive.alertaSobreconsumoHoras ? (
-                        <span className="rounded-r4 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-rose-900">
-                          Sobreconsumo horas
-                        </span>
-                      ) : null}
-                      {drawerRowLive.alertaGastoVsAvance ? (
-                        <span className="rounded-r4 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-amber-900">
-                          Gasto vs avance (+{TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts)
-                        </span>
-                      ) : null}
-                      {drawerRowLive.alertaSinAsignacion ? (
-                        <span className="rounded-r4 bg-slate-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-800">
-                          Gasto sin asignación
-                        </span>
-                      ) : null}
-                      {drawerRowLive.redistribuido ? (
-                        <span className="rounded-r4 bg-teal-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-teal-900">
-                          Redistribuido
-                        </span>
-                      ) : null}
-                      {!drawerRowLive.alertaSobreconsumoHoras &&
-                      !drawerRowLive.alertaGastoVsAvance &&
-                      !drawerRowLive.alertaSinAsignacion &&
-                      !drawerRowLive.redistribuido ? (
+                    <dd>
+                      {drawerRowLive.alertasActivas.length > 0 ? (
+                        <BadgesAlertasActivas
+                          alertas={drawerRowLive.alertasActivas}
+                          className="text-[9px] [&_span]:text-[9px] [&_span]:font-bold [&_span]:uppercase"
+                        />
+                      ) : (
                         <span className="text-t500">Ninguna</span>
+                      )}
+                      {drawerRowLive.redistribuido ? (
+                        <p className="mt-1.5 text-[9px] text-teal-800">
+                          <span className="rounded-r4 bg-teal-500/15 px-1.5 py-0.5 font-bold uppercase">
+                            Redistribuido
+                          </span>{" "}
+                          (histórico; no es alerta activa)
+                        </p>
                       ) : null}
                     </dd>
                   </dl>

@@ -8,6 +8,7 @@ import type {
   AsignacionHoraCategoria,
   Cliente,
   Entregable,
+  EquipoEntregable,
   Profesional,
   Proyecto,
   RegistroHora,
@@ -17,8 +18,15 @@ import { esRegistroConsumoRealValido } from "@/entregables/registroHoraConsumo";
 import { historialRedistribucionPorEntregable } from "@/entregables/redistribucionHorasEntregable";
 import type { HistorialRedistribucionHoras } from "@/entregables/redistribucionHorasEntregable";
 import { entregableEstadoEsCompletado } from "@/entregables/asignacionHoraRules";
+import {
+  calcularAlertasActivasEntregable,
+  calcularAlertasActivasProyecto,
+  derivarFlagsAlertaLegacy,
+  entregableTieneAlertasActivas,
+  type AlertaActiva,
+} from "@/alertas/alertasActivas";
 
-export const TOLERANCIA_GASTO_VS_AVANCE_PUNTOS = 20;
+export { TOLERANCIA_GASTO_VS_AVANCE_PUNTOS } from "@/alertas/alertasActivas";
 
 const CATEGORIAS: AsignacionHoraCategoria[] = ["L2", "P4", "P3", "P2"];
 
@@ -202,6 +210,8 @@ export type EntregableVistaAnalisis = {
   saldoHoras: number;
   ufPresup: number;
   ufGasto: number;
+  /** Alertas recalculadas desde datos actuales (fuente de verdad para contadores). */
+  alertasActivas: AlertaActiva[];
   alertaSobreconsumoHoras: boolean;
   alertaGastoVsAvance: boolean;
   alertaSinAsignacion: boolean;
@@ -210,7 +220,7 @@ export type EntregableVistaAnalisis = {
 };
 
 function entregableTieneAlgunaAlerta(a: EntregableVistaAnalisis): boolean {
-  return a.alertaSobreconsumoHoras || a.alertaGastoVsAvance || a.alertaSinAsignacion;
+  return entregableTieneAlertasActivas(a.alertasActivas);
 }
 
 export function proyectoPasaFiltroEstado(p: Proyecto, filtro: FiltroEstadoProyectoVista): boolean {
@@ -246,10 +256,19 @@ export function construirAnalisisEntregablesVista(input: {
   profesionales: Profesional[];
   registro_horas: RegistroHora[];
   asignaciones_horas: AsignacionHora[];
+  equipo_entregable: EquipoEntregable[];
   historial_redistribuciones_horas: HistorialRedistribucionHoras[];
 }): EntregableVistaAnalisis[] {
-  const { clientes, proyectos, entregables, profesionales, registro_horas, asignaciones_horas, historial_redistribuciones_horas } =
-    input;
+  const {
+    clientes,
+    proyectos,
+    entregables,
+    profesionales,
+    registro_horas,
+    asignaciones_horas,
+    equipo_entregable,
+    historial_redistribuciones_horas,
+  } = input;
 
   const clientMap = new Map(clientes.map((c) => [c.id, c]));
   const projMap = new Map(proyectos.map((p) => [p.id, p]));
@@ -300,10 +319,6 @@ export function construirAnalisisEntregablesVista(input: {
     const pctConsumoHoras = horasPresupuesto > 0 ? (horasGastadas / horasPresupuesto) * 100 : null;
     const avanceRealPct = toPct(Number(ent.avance_real));
     const avanceTeoricoPct = toPct(Number(ent.avance_teorico));
-    const alertaSobreconsumoHoras = horasPresupuesto > 0 && horasGastadas > horasPresupuesto;
-    const alertaGastoVsAvance =
-      pctConsumoHoras != null && pctConsumoHoras > avanceRealPct + TOLERANCIA_GASTO_VS_AVANCE_PUNTOS;
-
     const gastoProf = gastoPorEntregableYProf.get(ent.id) ?? new Map<string, number>();
     const asigsEnt = asignaciones_horas.filter((a) => a.entregable_id === ent.id);
     const pids = new Set<string>([...gastoProf.keys(), ...asigsEnt.map((a) => a.profesional_id)]);
@@ -342,7 +357,17 @@ export function construirAnalisisEntregablesVista(input: {
       .filter((x): x is ParticipanteEntregableVista => x != null)
       .sort((a, b) => a.profesional.nombre_completo.localeCompare(b.profesional.nombre_completo, "es"));
 
-    const alertaSinAsignacion = participantes.some((p) => p.horasTrabajadas > 0 && p.observacion === "Gasto sin asignación");
+    const alertasActivas = calcularAlertasActivasEntregable({
+      entregable: ent,
+      proyecto: pr,
+      profesionales,
+      registro_horas,
+      asignaciones_horas,
+      equipo_entregable,
+      entregables,
+      proyectos,
+    });
+    const flags = derivarFlagsAlertaLegacy(alertasActivas);
 
     const redistribuido = historialRedistribucionPorEntregable(historial_redistribuciones_horas ?? [], ent.id).length > 0;
 
@@ -359,9 +384,10 @@ export function construirAnalisisEntregablesVista(input: {
       saldoHoras: horasPresupuesto - horasGastadas,
       ufPresup: Number(ent.uf_presupuestadas),
       ufGasto: Number(ent.uf_consumidas),
-      alertaSobreconsumoHoras,
-      alertaGastoVsAvance,
-      alertaSinAsignacion,
+      alertasActivas,
+      alertaSobreconsumoHoras: flags.alertaSobreconsumoHoras,
+      alertaGastoVsAvance: flags.alertaGastoVsAvance,
+      alertaSinAsignacion: flags.alertaSinAsignacion,
       redistribuido,
       participantes,
     });
@@ -459,11 +485,14 @@ export type AgrupacionProyectosVista = {
     horasGasto: number;
     nEntregables: number;
     nEntregablesAlerta: number;
+    nAlertasActivas: number;
+    alertasProyecto: AlertaActiva[];
     flags: {
       sobreconsumo: boolean;
       redistribuido: boolean;
       enRiesgo: boolean;
       completado: boolean;
+      proyectoNoIniciadoConActividad: boolean;
     };
   }[];
 };
@@ -521,11 +550,17 @@ export function agruparClienteProyecto(filasFiltradas: EntregableVistaAnalisis[]
         ufGasto += r.ufGasto;
         horasPresup += r.horasPresupuesto;
         horasGasto += r.horasGastadas;
-        if (r.alertaSobreconsumoHoras || r.alertaGastoVsAvance || r.alertaSinAsignacion) nEntregablesAlerta += 1;
+        if (entregableTieneAlertasActivas(r.alertasActivas)) nEntregablesAlerta += 1;
         if (r.alertaSobreconsumoHoras) sobreconsumo = true;
         if (r.redistribuido) redistribuido = true;
         if (r.alertaGastoVsAvance) enRiesgo = true;
       }
+
+      const tieneActividadProyecto = filas.some((r) => entregableTieneActividadReal(r));
+      const alertasProyecto = calcularAlertasActivasProyecto(proyecto, tieneActividadProyecto);
+      const nAlertasActivas =
+        filas.reduce((s, r) => s + r.alertasActivas.length, 0) + alertasProyecto.length;
+      if (alertasProyecto.length > 0) nEntregablesAlerta += 1;
 
       let liderPrincipalId: string | null = null;
       let best = 0;
@@ -548,11 +583,14 @@ export function agruparClienteProyecto(filasFiltradas: EntregableVistaAnalisis[]
         horasGasto,
         nEntregables: filas.length,
         nEntregablesAlerta,
+        nAlertasActivas,
+        alertasProyecto,
         flags: {
           sobreconsumo,
           redistribuido,
           enRiesgo,
           completado: proyecto.estado === "COMPLETADO",
+          proyectoNoIniciadoConActividad: alertasProyecto.length > 0,
         },
       });
     }
@@ -569,7 +607,7 @@ export function agruparClienteProyecto(filasFiltradas: EntregableVistaAnalisis[]
       ufGastoC += pr.ufGasto;
       horasPresupC += pr.horasPresup;
       horasGastoC += pr.horasGasto;
-      nAlertasC += pr.nEntregablesAlerta;
+      nAlertasC += pr.nAlertasActivas;
     }
 
     result.push({
