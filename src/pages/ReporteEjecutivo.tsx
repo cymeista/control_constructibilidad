@@ -53,6 +53,7 @@ export default function ReporteEjecutivoPage() {
         clientes: data.clientes,
         asignaciones_horas: data.asignaciones_horas,
         alertas_revisadas: data.alertas_revisadas,
+        pipeline: data.pipeline,
       }),
     [
       filtros,
@@ -64,6 +65,7 @@ export default function ReporteEjecutivoPage() {
       data.clientes,
       data.asignaciones_horas,
       data.alertas_revisadas,
+      data.pipeline,
     ],
   );
 
@@ -86,6 +88,7 @@ export default function ReporteEjecutivoPage() {
         clientes: data.clientes,
         asignaciones_horas: data.asignaciones_horas,
         alertas_revisadas: data.alertas_revisadas,
+        pipeline: data.pipeline,
       }).resumenEjecutivo,
     [
       filtros,
@@ -96,6 +99,7 @@ export default function ReporteEjecutivoPage() {
       data.clientes,
       data.asignaciones_horas,
       data.alertas_revisadas,
+      data.pipeline,
     ],
   );
 
@@ -117,7 +121,7 @@ export default function ReporteEjecutivoPage() {
         <SectionHeader
           number="REPORTE"
           title="Reporte Ejecutivo"
-          hint="PDF de una hoja para jefatura o cliente interno"
+          hint="Reporte semanal · 1 hoja carta horizontal"
         />
 
         <div className="rounded-r12 border border-bdr bg-white p-5 shadow-sh1">
@@ -244,7 +248,7 @@ export default function ReporteEjecutivoPage() {
 
         {mostrarVistaPrevia ? (
           <div className="overflow-x-auto rounded-r12 border border-bdr bg-slate-100 p-4">
-            <p className="mb-3 text-[12px] font-medium text-t700">Vista previa (A4 horizontal)</p>
+            <p className="mb-3 text-[12px] font-medium text-t700">Vista previa (carta horizontal)</p>
             <div className="inline-block shadow-lg">
               <ReporteEjecutivoPrint snap={snapshot} hitosLista={snapshot.proximosHitosCompletos} />
             </div>

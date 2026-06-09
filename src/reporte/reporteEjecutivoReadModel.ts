@@ -6,6 +6,7 @@ import type {
   AsignacionHora,
   Cliente,
   Entregable,
+  Pipeline,
   Profesional,
   Proyecto,
   RegistroHora,
@@ -123,6 +124,58 @@ export type HitoProximoReporte = {
   estado: string;
 };
 
+export type FilaPipelineReporte = {
+  cliente: string;
+  proyecto: string;
+  etapa: string;
+  estado: string;
+  montoUf: number;
+  horasTotales: number;
+  fechaPropuesta: string;
+};
+
+export type PipelineResumenReporte = {
+  totalPropuestas: number;
+  totalUf: number;
+  filas: FilaPipelineReporte[];
+  adicionales: number;
+};
+
+export const PIPELINE_REPORTE_MAX_FILAS = 5;
+
+const ETAPA_PIPELINE_LABEL: Record<Pipeline["etapa"], string> = {
+  CONCEPTUAL: "Conceptual",
+  FACTIBILIDAD: "Factib.",
+  DETALLE: "Detalle",
+};
+
+const ESTADO_PIPELINE_LABEL: Record<Pipeline["estado"], string> = {
+  EN_ESPERA: "En espera",
+  EN_COTIZACION: "En cotiz.",
+  APROBADO: "Aprobado",
+  RECHAZADO: "Rechazado",
+};
+
+export function buildPipelineResumenReporte(pipeline: Pipeline[]): PipelineResumenReporte {
+  const activos = pipeline.filter((p) => p.estado !== "RECHAZADO");
+  const sorted = [...activos].sort((a, b) => (b.monto_uf ?? 0) - (a.monto_uf ?? 0));
+  const filas: FilaPipelineReporte[] = sorted.slice(0, PIPELINE_REPORTE_MAX_FILAS).map((p) => ({
+    cliente: (p.cliente ?? "").trim() || "—",
+    proyecto: (p.nombre_proyecto ?? "").trim() || "—",
+    etapa: ETAPA_PIPELINE_LABEL[p.etapa] ?? p.etapa,
+    estado: ESTADO_PIPELINE_LABEL[p.estado] ?? p.estado,
+    montoUf: Number(p.monto_uf) || 0,
+    horasTotales: (p.hrs_L2 ?? 0) + (p.hrs_P4 ?? 0) + (p.hrs_P3 ?? 0) + (p.hrs_P2 ?? 0),
+    fechaPropuesta: (p.fecha_propuesta ?? "").trim(),
+  }));
+  return {
+    totalPropuestas: activos.length,
+    totalUf: activos.reduce((s, p) => s + (Number(p.monto_uf) || 0), 0),
+    filas,
+    adicionales: Math.max(0, sorted.length - PIPELINE_REPORTE_MAX_FILAS),
+  };
+}
+
 export type ReporteEjecutivoSnapshot = {
   fechaEmision: string;
   responsable: string;
@@ -149,6 +202,7 @@ export type ReporteEjecutivoSnapshot = {
   proximosHitosCompletos: HitoProximoReporte[];
   proximosHitosAdicionales: number;
   tituloProximosHitos: string;
+  pipeline: PipelineResumenReporte;
 };
 
 function resolveProyectoIds(
@@ -361,6 +415,7 @@ export function buildReporteEjecutivoSnapshot(
     clientes: Cliente[];
     asignaciones_horas: AsignacionHora[];
     alertas_revisadas?: AlertaRevisada[];
+    pipeline?: Pipeline[];
   },
 ): ReporteEjecutivoSnapshot {
   const hoy = fechaHoyIsoLocalCapacidad();
@@ -871,6 +926,7 @@ export function buildReporteEjecutivoSnapshot(
     proximosHitosCompletos,
     proximosHitosAdicionales,
     tituloProximosHitos,
+    pipeline: buildPipelineResumenReporte(data.pipeline ?? []),
   };
 }
 
