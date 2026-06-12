@@ -32,9 +32,14 @@ import {
   CATEGORIAS_REDIST,
   calcularRedistribucionAgregarHorasDestinoCompleto,
   calcularRedistribucionMaximoDisponible,
+  calcularSaldoNoDistribuido,
   calcularUfEntregablePorCategoria,
   construirLineasRedistribucion,
+  entregableConHorasPresupuesto,
   evaluarCompensacionParcialDestino,
+  resolverTechoTotalHorasRedistribucion,
+  resolverUfTechoRedistribucion,
+  sumaHorasPorCategoria,
   etiquetaEstadoLineaRedistribucion,
   historialRedistribucionPorEntregable,
   horasEntregableARecord,
@@ -83,16 +88,35 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
   const tarifas = tarifasResult && "ok" in tarifasResult && tarifasResult.ok ? tarifasResult.tarifas : null;
   const tarifasError = tarifasResult && "ok" in tarifasResult && !tarifasResult.ok ? tarifasResult.error : null;
 
-  const historialEnt = useMemo(
-    () => historialRedistribucionPorEntregable(historial_redistribuciones_horas ?? [], ent.id).slice(0, 8),
+  const historialEntCompleto = useMemo(
+    () => historialRedistribucionPorEntregable(historial_redistribuciones_horas ?? [], ent.id),
     [historial_redistribuciones_horas, ent.id],
   );
 
+  const historialEntReciente = useMemo(() => historialEntCompleto.slice(0, 8), [historialEntCompleto]);
+
   const hoy = fechaHoyIsoLocal();
+  const horasActuales = useMemo(() => horasEntregableARecord(ent), [ent]);
+
+  const techoTotalHoras = useMemo(
+    () => resolverTechoTotalHorasRedistribucion(horasActuales, historialEntCompleto),
+    [horasActuales, historialEntCompleto],
+  );
+
+  const opcionesTecho = useMemo(() => {
+    if (!tarifas) return undefined;
+    return {
+      techoTotalHoras,
+      ufTecho: resolverUfTechoRedistribucion(horasActuales, tarifas, historialEntCompleto),
+    };
+  }, [tarifas, techoTotalHoras, horasActuales, historialEntCompleto]);
+
+  const [horasEdit, setHorasEdit] = useState<HorasPorCategoria>(horasActuales);
+
   const lineas = useMemo(
     () =>
       construirLineasRedistribucion(
-        ent,
+        entregableConHorasPresupuesto(ent, horasEdit),
         asignaciones_horas,
         registro_horas,
         entregables,
@@ -100,12 +124,13 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
         profesionales,
         hoy,
       ),
-    [ent, asignaciones_horas, registro_horas, entregables, proyectos, profesionales, hoy],
+    [ent, horasEdit, asignaciones_horas, registro_horas, entregables, proyectos, profesionales, hoy],
   );
 
-  const horasActuales = useMemo(() => horasEntregableARecord(ent), [ent]);
-
-  const [horasEdit, setHorasEdit] = useState<HorasPorCategoria>(horasActuales);
+  const saldoNoDistribuido = useMemo(
+    () => calcularSaldoNoDistribuido(techoTotalHoras, horasEdit),
+    [techoTotalHoras, horasEdit],
+  );
   const [comentario, setComentario] = useState("");
   const [errores, setErrores] = useState<string[]>([]);
   const [categoriaDestino, setCategoriaDestino] = useState<AsignacionHoraCategoria>("L2");
@@ -164,8 +189,9 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     [horasEdit, tarifas],
   );
   const diffUf = ufDespues - ufAntes;
-  const ufPermitida = tarifas != null && deltaUfRedistribucionPermitido(diffUf);
-  const mensajeUfMenor = mensajeAdvertenciaUfMenorAlOriginal(diffUf);
+  const diffUfVsTecho = opcionesTecho ? ufDespues - opcionesTecho.ufTecho : diffUf;
+  const ufPermitida = tarifas != null && deltaUfRedistribucionPermitido(diffUfVsTecho);
+  const mensajeUfMenor = mensajeAdvertenciaUfMenorAlOriginal(diffUfVsTecho);
   const advertenciasLegacy = useMemo(
     () => (tarifas ? advertenciasMinimoTecnicoLegacy(horasEdit, lineas) : []),
     [tarifas, horasEdit, lineas],
@@ -177,8 +203,10 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     return validarRedistribucionHoras(horasActuales, horasEdit, lineas, tarifas, comentario, {
       exigirMultiploMediaHora: false,
       exigirComentario: true,
+      techoTotalHoras: opcionesTecho?.techoTotalHoras,
+      ufTecho: opcionesTecho?.ufTecho,
     });
-  }, [tarifas, horasActuales, horasEdit, lineas, comentario]);
+  }, [tarifas, horasActuales, horasEdit, lineas, comentario, opcionesTecho]);
 
   const puedeGuardar = tarifas != null && erroresGuardadoVivo.length === 0;
 
@@ -224,7 +252,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     }
     const lnDest = lineas.find((l) => l.categoria === categoriaDestino);
     if (lnDest) {
-      const presupuestoResultante = horasActuales[categoriaDestino] + raw;
+      const presupuestoResultante = horasEdit[categoriaDestino] + raw;
       if (presupuestoResultante + 1e-6 < lnDest.gastoRealRegistroHora) {
         setUltimoResultadoRedist(null);
         setMensajeAuto(null);
@@ -232,7 +260,14 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
         return;
       }
     }
-    const res = calcularRedistribucionAgregarHorasDestinoCompleto(lineas, tarifas, horasActuales, categoriaDestino, raw);
+    const res = calcularRedistribucionAgregarHorasDestinoCompleto(
+      lineas,
+      tarifas,
+      horasEdit,
+      categoriaDestino,
+      raw,
+      opcionesTecho,
+    );
     setUltimoResultadoRedist(res);
     if (res.codigo === "ok") {
       setHorasEdit(res.propuesta);
@@ -248,9 +283,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       if (incremento > 0) {
         setHorasEdit((prev) => ({
           ...prev,
-          [categoriaDestino]: redondearHorasAjusteManual(
-            horasActuales[categoriaDestino] + incremento,
-          ),
+          [categoriaDestino]: redondearHorasAjusteManual(prev[categoriaDestino] + incremento),
         }));
       }
       setMensajeAuto(MENSAJE_AUTO_SIN_COMBINACION_05H);
@@ -260,18 +293,18 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
         resultadosPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
-  }, [tarifas, tarifasError, lineas, horasActuales, categoriaDestino, horasAAgregarTexto, ent]);
+  }, [tarifas, tarifasError, lineas, horasEdit, opcionesTecho, categoriaDestino, horasAAgregarTexto]);
 
   const onRedistribuirMaximoDisponible = useCallback(() => {
     if (!tarifas) {
       setErrores([tarifasError ?? "Sin tarifas de proyecto."]);
       return;
     }
-    const res = calcularRedistribucionMaximoDisponible(lineas, tarifas, horasActuales, categoriaDestino);
+    const res = calcularRedistribucionMaximoDisponible(lineas, tarifas, horasEdit, categoriaDestino);
     setUltimoResultadoRedist(null);
     setMensajeAuto(null);
     const hayCambio = CATEGORIAS_REDIST.some(
-      (c) => Math.abs(res.horasPropuestas[c] - horasActuales[c]) > 1e-6,
+      (c) => Math.abs(res.horasPropuestas[c] - horasEdit[c]) > 1e-6,
     );
     if (res.ok && hayCambio) {
       setHorasEdit({
@@ -295,7 +328,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
             : ["No se pudo generar la redistribución parcial."],
       );
     }
-  }, [tarifas, tarifasError, lineas, horasActuales, categoriaDestino]);
+  }, [tarifas, tarifasError, lineas, horasEdit, categoriaDestino]);
 
   const onAplicarSugerencia = useCallback((s: SugerenciaRedistribAgregar) => {
     setHorasEdit({ ...s.horasPropuestas });
@@ -311,6 +344,8 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
     }
     const errs = validarRedistribucionHoras(horasActuales, horasEdit, lineas, tarifas, comentario, {
       exigirMultiploMediaHora: false,
+      techoTotalHoras: opcionesTecho?.techoTotalHoras,
+      ufTecho: opcionesTecho?.ufTecho,
     });
     if (errs.length) {
       setErrores(errs);
@@ -322,7 +357,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
       return;
     }
     onOpenChange(false);
-  }, [tarifas, tarifasError, horasActuales, horasEdit, lineas, comentario, ejecutar, ent.id, onOpenChange]);
+  }, [tarifas, tarifasError, horasActuales, horasEdit, lineas, comentario, opcionesTecho, ejecutar, ent.id, onOpenChange]);
 
   const ctxLine = [
     cliente ? `${cliente.nombre} (${cliente.codigo})` : "Cliente —",
@@ -706,11 +741,11 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                 ) : null}
               </div>
 
-              {historialEnt.length > 0 ? (
+              {historialEntReciente.length > 0 ? (
                 <div>
                   <div className="mb-1 font-semibold text-t900">Historial reciente (este entregable)</div>
                   <ul className="max-h-44 space-y-1 overflow-y-auto rounded-r8 border border-bdr bg-surface2/60 px-3 py-2 text-[11px] text-t700">
-                    {historialEnt.map((h: HistorialRedistribucionHoras) => (
+                    {historialEntReciente.map((h: HistorialRedistribucionHoras) => (
                       <li key={h.id} className="border-b border-bdr/40 pb-1 last:border-0">
                         <span className="font-mono text-t600">{h.fecha}</span> · ΔUF {h.diferencia_uf.toFixed(4)} ·{" "}
                         <span className="italic text-t600">
@@ -771,6 +806,35 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                 </div>
               </div>
 
+              <div className="rounded-r8 border border-bdr bg-surface2/50 px-3 py-2 text-[11px]">
+                <div className="font-semibold text-t900">Presupuesto total (techo)</div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                  <span>
+                    Techo original:{" "}
+                    <span className="font-mono font-semibold">
+                      {techoTotalHoras.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h
+                    </span>
+                  </span>
+                  <span>
+                    Asignado ahora:{" "}
+                    <span className="font-mono font-semibold">
+                      {sumaHorasPorCategoria(horasEdit).toLocaleString("es-CL", { maximumFractionDigits: 1 })} h
+                    </span>
+                  </span>
+                  <span className={saldoNoDistribuido > 1e-6 ? "font-semibold text-indigo-800" : ""}>
+                    Saldo no distribuido:{" "}
+                    <span className="font-mono">
+                      {saldoNoDistribuido.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h
+                    </span>
+                  </span>
+                </div>
+                {saldoNoDistribuido > 1e-6 ? (
+                  <p className="mt-1 text-[10px] leading-snug text-t600">
+                    Horas liberadas al bajar una categoría quedan disponibles para reasignar sin superar el techo.
+                  </p>
+                ) : null}
+              </div>
+
               <div className="rounded-r8 border border-bdr bg-white px-3 py-2">
                 <div className="font-semibold text-t900">Comparación UF</div>
                 <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
@@ -783,15 +847,20 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
                   <span>
                     ΔUF: <span className="font-mono font-semibold">{diffUf.toFixed(4)}</span>
                   </span>
+                  {tarifas && opcionesTecho ? (
+                    <span>
+                      UF techo: <span className="font-mono font-semibold">{opcionesTecho.ufTecho.toFixed(4)}</span>
+                    </span>
+                  ) : null}
                   {tarifas ? (
                     <span
                       className={ufPermitida ? "font-semibold text-[#047857]" : "font-semibold text-[#B91C1C]"}
                     >
                       {ufPermitida
-                        ? diffUf < -1e-9
+                        ? diffUfVsTecho < -1e-9
                           ? "UF permitida (ajuste conservador)"
-                          : "UF permitida (sin aumento excesivo)"
-                        : `Aumento de UF excesivo (máx. +${UF_REDISTRIBUCION_TOLERANCIA} UF) — no se puede guardar`}
+                          : "UF permitida (sin aumento excesivo vs techo)"
+                        : `Supera UF techo (máx. +${UF_REDISTRIBUCION_TOLERANCIA} UF) — no se puede guardar`}
                     </span>
                   ) : null}
                 </div>

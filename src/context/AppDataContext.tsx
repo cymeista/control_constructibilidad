@@ -63,6 +63,9 @@ import {
   construirLineasRedistribucion,
   horasEntregableARecord,
   tarifasDesdeProyecto,
+  historialRedistribucionPorEntregable,
+  resolverTechoTotalHorasRedistribucion,
+  resolverUfTechoRedistribucion,
   validarRedistribucionHoras,
 } from "@/entregables/redistribucionHorasEntregable";
 import type { CurvaObjetivoAnual, CurvaObjetivoMes } from "@/entregables/curvaObjetivoAnualTypes";
@@ -2501,8 +2504,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           fecha,
         );
         const horasAct = horasEntregableARecord(ent);
+        const histEnt = historialRedistribucionPorEntregable(
+          prev.historial_redistribuciones_horas ?? [],
+          ent.id,
+        );
+        const techoTotalHoras = resolverTechoTotalHorasRedistribucion(horasAct, histEnt);
+        const ufTecho = resolverUfTechoRedistribucion(horasAct, tr.tarifas, histEnt);
         const errs = validarRedistribucionHoras(horasAct, input.horasNuevas, lineas, tr.tarifas, input.comentario, {
           exigirMultiploMediaHora: false,
+          techoTotalHoras,
+          ufTecho,
         });
         if (errs.length) {
           result = { ok: false, errors: errs };
