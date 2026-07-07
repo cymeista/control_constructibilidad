@@ -48,6 +48,11 @@ import {
 } from "@/components/formularios/forms";
 import RegistroHoraImportDialog from "@/components/RegistroHoraImportDialog";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
+import {
+  etiquetaTipoHoraRegistro,
+  REGISTRO_HORA_TIPO_BADGE,
+  type RegistroHoraTipo,
+} from "@/entregables/registroHoraTipos";
 import DataTable from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -2471,13 +2476,15 @@ export default function Formularios() {
                 key: "tipo_hora",
                 header: "Tipo",
                 render: (r) => {
-                  const cfg: Record<string, { bg: string; text: string }> = {
-                    DIRECTA: { bg: "#ECFDF5", text: "#047857" },
-                    INDIRECTA: { bg: "#FFF7ED", text: "#B45309" },
-                    VACACIONES: { bg: "#F1F5F9", text: "#475569" },
-                  };
-                  const s = cfg[r.tipo_hora];
-                  return <span className="rounded-r4 px-1.5 py-0.5 text-[10px] font-semibold uppercase" style={{ background: s.bg, color: s.text }}>{r.tipo_hora}</span>;
+                  const s = REGISTRO_HORA_TIPO_BADGE[r.tipo_hora];
+                  return (
+                    <span
+                      className="rounded-r4 px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                      style={{ background: s.bg, color: s.text }}
+                    >
+                      {etiquetaTipoHoraRegistro(r.tipo_hora)}
+                    </span>
+                  );
                 },
               },
               {
@@ -2793,16 +2800,11 @@ export default function Formularios() {
 
   const color = entityColors[activeEntity];
 
-  const registroTipoBadge = (tipo: RegistroHora["tipo_hora"]) => {
-    const cfg: Record<string, { bg: string; text: string }> = {
-      DIRECTA: { bg: "#ECFDF5", text: "#047857" },
-      INDIRECTA: { bg: "#FFF7ED", text: "#B45309" },
-      VACACIONES: { bg: "#F1F5F9", text: "#475569" },
-    };
-    const s = cfg[tipo];
+  const registroTipoBadge = (tipo: RegistroHoraTipo) => {
+    const s = REGISTRO_HORA_TIPO_BADGE[tipo];
     return (
       <span className="rounded-r4 px-1.5 py-0.5 text-[10px] font-semibold uppercase" style={{ background: s.bg, color: s.text }}>
-        {tipo}
+        {etiquetaTipoHoraRegistro(tipo)}
       </span>
     );
   };

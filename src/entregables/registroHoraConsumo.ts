@@ -3,8 +3,10 @@
  * No modifica presupuesto ni estado; solo agrega campos de consumo por entregable.
  */
 
+import type { RegistroHoraTipo } from "@/entregables/registroHoraTipos";
+
 export type RegistroHoraConsumoInput = {
-  tipo_hora: "DIRECTA" | "INDIRECTA" | "VACACIONES";
+  tipo_hora: RegistroHoraTipo;
   proyecto_id: string | null;
   entregable_id: string | null;
   profesional_id: string;

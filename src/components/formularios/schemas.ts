@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { refineEntregableFechas } from "@/entregables/entregableFechasValidation";
+import { REGISTRO_HORA_TIPOS } from "@/entregables/registroHoraTipos";
 
 /* ─── Entity Schemas ─── */
 
@@ -47,7 +48,7 @@ export const registroHoraBaseSchema = z.object({
   profesional_id: z.string().min(1, "Seleccione un profesional"),
   proyecto_id: z.string().nullable().optional(),
   entregable_id: z.string().nullable().optional(),
-  tipo_hora: z.enum(["DIRECTA", "INDIRECTA", "VACACIONES"]),
+  tipo_hora: z.enum(REGISTRO_HORA_TIPOS),
   fecha: z.string().min(1, "Requerido"),
   horas: z
     .coerce.number()

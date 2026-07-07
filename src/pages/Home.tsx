@@ -10,7 +10,6 @@ import { buildDashboardCurvaPropuestaEntregables } from "@/entregables/dashboard
 import {
   faltanteVsObjetivoAjustadoMesDisplay,
   horasVendidasProyectosAnio,
-  resolverHorasPropuestasMesSiguiente,
 } from "@/entregables/dashboardKpisPresentacion";
 import {
   calculateAvanceTeorico,
@@ -23,7 +22,10 @@ import {
   estadoToDonutSlice,
   type EntregableDonutSlice,
 } from "@/entregables/entregableDashboardFiltros";
-import KpiCard, { kpiCardsGridClassName } from "@/components/KpiCard";
+import KpiCard, {
+  kpiDashboardSingleRowClassName,
+  kpiDashboardSingleRowItemClassName,
+} from "@/components/KpiCard";
 import { MobileCardRow } from "@/components/formularios/EntityMobileCardRows";
 import StatusPill from "@/components/StatusPill";
 import SectionHeader from "@/components/SectionHeader";
@@ -41,9 +43,11 @@ import {
 import ChartJsLineFrame from "@/components/ChartJsLineFrame";
 import { format } from "date-fns";
 import { diffCalendarDaysFromToday, formatDateForDisplay } from "@/lib/localDate";
-import { Calendar, ChevronDown, ChevronRight, StickyNote } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, Plus, StickyNote } from "lucide-react";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
 import { EntregableFechasEditModal } from "@/components/entregables/EntregableFechasEditModal";
+import { CrearEntregableModal } from "@/components/entregables/CrearEntregableModal";
+import type { EntregableProyectoBloqueado } from "@/components/formularios/forms";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/security/AuthContext";
@@ -185,28 +189,6 @@ function EntregableAvanceRapido({ entregable }: { entregable: Entregable }) {
       </button>
     </div>
   );
-}
-
-const MES_NOMBRE_ES = [
-  "enero",
-  "febrero",
-  "marzo",
-  "abril",
-  "mayo",
-  "junio",
-  "julio",
-  "agosto",
-  "septiembre",
-  "octubre",
-  "noviembre",
-  "diciembre",
-] as const;
-
-const MES_ABBR_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] as const;
-
-function mesTitulo(m0: number) {
-  const m = MES_NOMBRE_ES[m0];
-  return m ? m.charAt(0).toUpperCase() + m.slice(1) : "";
 }
 
 function fmtHorasCurva(n: number) {
@@ -475,7 +457,10 @@ export default function Home() {
   const { role } = useAuth();
   const puedeEditarNotas = role ? canEditNotas(role) : false;
   const puedeEditarFechas = role ? canAccederFormularios(role) : false;
+  const puedeCrearEntregable = role ? canAccederFormularios(role) : false;
   const [fechasEditEntregableId, setFechasEditEntregableId] = useState<string | null>(null);
+  const [crearEntregableProyecto, setCrearEntregableProyecto] = useState<EntregableProyectoBloqueado | null>(null);
+  const [toastCrearEntregable, setToastCrearEntregable] = useState<string | null>(null);
   const [factor, setFactor] = useState(85);
   const [clienteFilter, setClienteFilter] = useState("");
   const [proyectoFilter, setProyectoFilter] = useState("");
@@ -488,6 +473,12 @@ export default function Home() {
   const [notaSegEntregableId, setNotaSegEntregableId] = useState<string | null>(null);
   const isBelowMd = useIsBelowMd();
   const [curvaExplicacionAbierta, setCurvaExplicacionAbierta] = useState(false);
+
+  useEffect(() => {
+    if (!toastCrearEntregable) return;
+    const t = window.setTimeout(() => setToastCrearEntregable(null), 3200);
+    return () => window.clearTimeout(t);
+  }, [toastCrearEntregable]);
 
   const anioCalendario = new Date().getFullYear();
   const curvaObjetivoAnualActual = useMemo(
@@ -997,23 +988,10 @@ export default function Home() {
                   </div>
                 ) : null}
                 {(() => {
-                  const mesIdxActual =
-                    anioCalendario === new Date().getFullYear() ? new Date().getMonth() : 11;
-                  const ytdRango = `${MES_ABBR_ES[0]}–${MES_ABBR_ES[mesIdxActual]} ${anioCalendario}`;
-                  const mesCalTitulo = `${mesTitulo(mesIdxActual)} ${anioCalendario}`;
                   const horasVendidas = horasVendidasProyectosAnio(
                     data.entregables,
                     data.proyectos,
                     anioCalendario,
-                  );
-                  const propMesSig = resolverHorasPropuestasMesSiguiente(
-                    data.entregables,
-                    data.proyectos,
-                    anioCalendario,
-                    new Date(),
-                    curvaObjetivoDashboard.ajusteAcum,
-                    curvaChartPack.propuesta.propuestaMensual,
-                    curvaChartPack.propuesta.kpis.mesKpi1a12,
                   );
                   const faltanteMes = faltanteVsObjetivoAjustadoMesDisplay(
                     curvaObjetivoDashboard.kpis.objetivoMesActualAjustado,
@@ -1023,9 +1001,10 @@ export default function Home() {
                     ? `+${fmtHorasCurva(Math.abs(faltanteMes.valorHoras))} h`
                     : `${fmtHorasCurva(faltanteMes.valorHoras)} h`;
                   return (
-                    <>
-                      <div className={kpiCardsGridClassName}>
+                    <div className={kpiDashboardSingleRowClassName}>
+                      <div className={kpiDashboardSingleRowItemClassName}>
                         <KpiCard
+                          compact
                           label="OBJETIVO ANUAL AJUSTADO"
                           value={`${fmtHorasCurva(curvaObjetivoDashboard.kpis.objetivoAnualAjustado)} h`}
                           subtitle={
@@ -1035,48 +1014,39 @@ export default function Home() {
                           }
                           topColor="#4f46e5"
                         />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
                         <KpiCard
+                          compact
                           label={
                             isBelowMd
                               ? `HORAS VENDIDAS ${anioCalendario}`
-                              : `HORAS VENDIDAS EN PROPUESTAS AÑO ${anioCalendario}`
+                              : `HORAS VENDIDAS ${anioCalendario}`
                           }
                           value={`${fmtHorasCurva(horasVendidas)} h`}
                           subtitle={isBelowMd ? `P4+P3+P2 · ${anioCalendario}` : `Proyectos ${anioCalendario} · hrs P4+P3+P2`}
                           topColor="#7c3aed"
                         />
-                        <KpiCard
-                          label="HORAS PROPUESTAS DEL MES"
-                          value={`${fmtHorasCurva(curvaChartPack.propuesta.kpis.horasPropuestasMesActual)} h`}
-                          subtitle={isBelowMd ? "Planificadas mes · P4+P3+P2" : "Teóricas / planificadas del mes · P4+P3+P2"}
-                          topColor="#0369a1"
-                        />
-                        <KpiCard
-                          label={isBelowMd ? "PROPUESTAS MES SIG." : "HORAS PROPUESTAS MES SIGUIENTE"}
-                          value={`${fmtHorasCurva(propMesSig.horas)} h`}
-                          subtitle={isBelowMd ? propMesSig.etiquetaMes : `Teóricas / planificadas · ${propMesSig.etiquetaMes}`}
-                          topColor="#0369a1"
-                        />
                       </div>
-                      <div className={kpiCardsGridClassName}>
+                      <div className={kpiDashboardSingleRowItemClassName}>
                         <KpiCard
-                          label="DIRECTAS REALES (YTD)"
-                          value={`${fmtHorasCurva(curvaChartPack.real.kpis.directasRealesAcumuladasYTD)} h`}
+                          compact
+                          label={
+                            isBelowMd ? "DIRECTAS GASTADAS MES" : "HORAS DIRECTAS GASTADAS DEL MES"
+                          }
+                          value={`${fmtHorasCurva(curvaChartPack.real.kpis.directasRealesMesActual)} h`}
                           subtitle={
                             isBelowMd
-                              ? `${ytdRango} · DIRECTA`
-                              : `${ytdRango} · RegistroHora DIRECTA · prorrateadas por semana`
+                              ? "Reales del mes · P4+P3+P2"
+                              : "Reales registradas del mes · P4+P3+P2"
                           }
                           topColor="#c2410c"
                         />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
                         <KpiCard
-                          label="DIRECTAS REALES DEL MES"
-                          value={`${fmtHorasCurva(curvaChartPack.real.kpis.directasRealesMesActual)} h`}
-                          subtitle={isBelowMd ? `DIRECTA · ${mesCalTitulo}` : `RegistroHora DIRECTA del mes · ${mesCalTitulo}`}
-                          topColor="#c2410c"
-                        />
-                        <KpiCard
-                          label={isBelowMd ? "FALTANTE VS OBJ. (MES)" : "FALTANTE VS OBJ. AJUSTADO (MES)"}
+                          compact
+                          label={isBelowMd ? "FALTANTE OBJ. MES" : "FALTANTE OBJETIVO MES"}
                           value={faltanteValor}
                           subtitle={
                             faltanteMes.esSobreObjetivo
@@ -1089,8 +1059,11 @@ export default function Home() {
                           }
                           topColor={faltanteMes.esSobreObjetivo ? "#047857" : "#B91C1C"}
                         />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
                         <KpiCard
-                          label={isBelowMd ? "CARGABILIDAD REAL (YTD)" : "CARGABILIDAD REAL ÁREA (YTD)"}
+                          compact
+                          label={isBelowMd ? "CARGABILIDAD ANUAL" : "CARGABILIDAD ANUAL"}
                           value={
                             curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD != null
                               ? `${curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD.toFixed(1)}%`
@@ -1104,7 +1077,7 @@ export default function Home() {
                           topColor="#6366F1"
                         />
                       </div>
-                    </>
+                    </div>
                   );
                 })()}
               </div>
@@ -1364,6 +1337,25 @@ export default function Home() {
                               </span>
                               <span className="text-[12px] font-medium text-t800">{bloquePr.proyectoNombre}</span>
                               <span className="text-[11px] text-t500">{bloquePr.items.length} entreg.</span>
+                              {puedeCrearEntregable ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="ml-auto h-7 shrink-0 gap-1 rounded-r6 border-bdr/80 px-2 text-[10px] font-semibold text-t700 hover:bg-white"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCrearEntregableProyecto({
+                                      id: bloquePr.proyectoId,
+                                      codigo: bloquePr.proyectoCodigo,
+                                      nombre: bloquePr.proyectoNombre,
+                                    });
+                                  }}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  Crear entregable
+                                </Button>
+                              ) : null}
                             </button>
                             {prOpen ? (
                               <>
@@ -1673,6 +1665,27 @@ export default function Home() {
           }}
         />
       </section>
+
+      {crearEntregableProyecto ? (
+        <CrearEntregableModal
+          open={!!crearEntregableProyecto}
+          onOpenChange={(open) => {
+            if (!open) setCrearEntregableProyecto(null);
+          }}
+          proyecto={crearEntregableProyecto}
+          onCreated={(nombre) => setToastCrearEntregable(`Entregable "${nombre}" creado correctamente.`)}
+        />
+      ) : null}
+
+      {toastCrearEntregable ? (
+        <div
+          className="fixed top-4 right-4 z-[1000] max-w-sm rounded-r8 border border-bdr bg-white p-[14px_18px] shadow-sh3"
+          style={{ borderLeft: "4px solid #047857" }}
+          role="status"
+        >
+          <p className="text-[13px] font-medium text-t900">{toastCrearEntregable}</p>
+        </div>
+      ) : null}
 
     </div>
   );

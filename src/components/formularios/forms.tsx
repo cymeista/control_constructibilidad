@@ -44,6 +44,12 @@ import {
 import { buildClienteFormSchema, type ClienteFormValues } from "@/clientes/clienteValidation";
 import { MENSAJE_BLOQUEO_PROYECTO_POR_REGISTRO_HORAS } from "@/proyectos/proyectoEliminacionRegla";
 import {
+  etiquetaTipoHoraRegistro,
+  REGISTRO_HORA_TIPOS,
+  tipoHoraSinProyectoEntregable,
+  type RegistroHoraTipo,
+} from "@/entregables/registroHoraTipos";
+import {
   buildProfesionalFormSchema,
   type ProfesionalFormValues,
 } from "@/profesionales/profesionalValidation";
@@ -151,17 +157,27 @@ function VDate(props: React.ComponentProps<typeof Input>) {
 }
 
 /* ─── FormActions ─── */
-function FormActions({ onCancel, onSubmit, onSubmitAndNew, submitLabel, isDirty }: {
+function FormActions({ onCancel, onSubmit, onSubmitAndNew, submitLabel, isDirty, embedMode, submitDisabled }: {
   onCancel: () => void;
   onSubmit: () => void;
   onSubmitAndNew?: () => void;
   submitLabel: string;
   isDirty: boolean;
+  /** Sin barra sticky (p. ej. modal embebido). */
+  embedMode?: boolean;
+  submitDisabled?: boolean;
 }) {
   const [saved, setSaved] = useState(false);
   const handleSave = () => { onSubmit(); setSaved(true); setTimeout(() => setSaved(false), 800); };
+  const disabled = submitDisabled ?? !isDirty;
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 mt-4 flex flex-col-reverse gap-2 border-t border-bdr bg-white/95 px-4 py-3 backdrop-blur-sm max-md:pb-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:-mx-6 md:flex-row md:items-center md:justify-end md:gap-2.5 md:px-6 md:py-3.5 md:pb-3.5">
+    <div
+      className={
+        embedMode
+          ? "mt-4 flex flex-col-reverse gap-2 border-t border-bdr pt-3 md:flex-row md:items-center md:justify-end md:gap-2.5"
+          : "sticky bottom-0 z-10 -mx-4 mt-4 flex flex-col-reverse gap-2 border-t border-bdr bg-white/95 px-4 py-3 backdrop-blur-sm max-md:pb-[calc(4.25rem+env(safe-area-inset-bottom,0px))] md:-mx-6 md:flex-row md:items-center md:justify-end md:gap-2.5 md:px-6 md:py-3.5 md:pb-3.5"
+      }
+    >
       <Button
         type="button"
         variant="outline"
@@ -183,7 +199,7 @@ function FormActions({ onCancel, onSubmit, onSubmitAndNew, submitLabel, isDirty 
       <Button
         type="button"
         onClick={handleSave}
-        disabled={!isDirty}
+        disabled={disabled}
         className={`min-h-[44px] w-full rounded-r8 px-6 py-2.5 text-[13px] font-semibold text-white transition-all duration-150 hover:-translate-y-px md:w-auto ${saved ? "bg-[#047857]" : "bg-[#4F46E5] hover:bg-[#3730A3]"}`}
       >
         {saved ? <Check className="mr-1 h-4 w-4" /> : null}
@@ -900,12 +916,28 @@ function entregableEditToFormValues(editItem: Entregable): EntregableForm {
   };
 }
 
-export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
+export type EntregableProyectoBloqueado = {
+  id: string;
+  codigo: string;
+  nombre: string;
+};
+
+export function EntregableFormPanel({
+  editItem,
+  onSaved,
+  onCancel,
+  proyectoBloqueado,
+  embedMode = false,
+}: {
   editItem?: Entregable | null;
-  onSaved: () => void;
+  onSaved: (nombre?: string) => void;
   onCancel: () => void;
+  /** Proyecto fijo (p. ej. creación rápida desde Dashboard). */
+  proyectoBloqueado?: EntregableProyectoBloqueado | null;
+  embedMode?: boolean;
 }) {
   const { proyectos, profesionales, addEntregable, updateEntregable } = useAppData();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const calculateBudgets = (payload: EntregableForm): { hrs: number; uf: number } => {
     const toFiniteNumber = (value: unknown): number => {
@@ -960,15 +992,28 @@ export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
     formState: { errors, isDirty },
   } = useForm<EntregableForm>({
     resolver: entregableResolver,
-    defaultValues: editItem ? entregableEditToFormValues(editItem) : ENTREGABLE_FORM_EMPTY,
+    defaultValues: editItem
+      ? entregableEditToFormValues(editItem)
+      : proyectoBloqueado
+        ? { ...ENTREGABLE_FORM_EMPTY, proyecto_id: proyectoBloqueado.id }
+        : ENTREGABLE_FORM_EMPTY,
   });
+
+  useEffect(() => {
+    if (editItem || !proyectoBloqueado) return;
+    setValue("proyecto_id", proyectoBloqueado.id, { shouldValidate: true });
+  }, [editItem, proyectoBloqueado, setValue]);
 
   const handleCancelClick = useCallback(() => {
     if (!editItem) {
-      reset(ENTREGABLE_FORM_EMPTY);
+      reset(
+        proyectoBloqueado
+          ? { ...ENTREGABLE_FORM_EMPTY, proyecto_id: proyectoBloqueado.id }
+          : ENTREGABLE_FORM_EMPTY,
+      );
     }
     onCancel();
-  }, [editItem, onCancel, reset]);
+  }, [editItem, onCancel, proyectoBloqueado, reset]);
 
   const proyectoId = watch("proyecto_id");
   const tipoFlujo = watch("tipo_flujo");
@@ -1007,7 +1052,11 @@ export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
   const previewBudgets = useMemo(() => calculateBudgets(previewPayload), [previewPayload]);
 
   const onSubmit = (data: EntregableForm) => {
-    const budgets = calculateBudgets({ ...data, proyecto_id: String(data.proyecto_id || "").trim() });
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const proyectoIdFinal = proyectoBloqueado?.id ?? String(data.proyecto_id || "").trim();
+      const budgets = calculateBudgets({ ...data, proyecto_id: proyectoIdFinal });
     const seguimientoPayload =
       data.tipo_flujo === "SIN_REVISIONES"
         ? {
@@ -1032,6 +1081,7 @@ export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
     const estadoCalculado = resolveEstado(seguimientoPayload, avanceTeorico);
     let payload: EntregableForm & Partial<Entregable> = {
       ...data,
+      proyecto_id: proyectoIdFinal,
       hrs_presupuestadas: budgets.hrs,
       uf_presupuestadas: budgets.uf,
       avance_teorico: avanceTeorico,
@@ -1048,16 +1098,22 @@ export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
 
     if (editItem) {
       updateEntregable(editItem.id, payload as Partial<Entregable>);
+      onSaved();
     } else {
       addEntregable({
         ...(payload as unknown as Omit<Entregable, "id" | "created_at" | "updated_at">),
         hrs_gastadas: 0,
         uf_consumidas: 0,
       });
+      onSaved(payload.nombre);
+      reset(
+        proyectoBloqueado
+          ? { ...ENTREGABLE_FORM_EMPTY, proyecto_id: proyectoBloqueado.id }
+          : ENTREGABLE_FORM_EMPTY,
+      );
     }
-    onSaved();
-    if (!editItem) {
-      reset(ENTREGABLE_FORM_EMPTY);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -1070,20 +1126,28 @@ export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field label="Proyecto" error={errors.proyecto_id?.message} required>
-          <Controller
-            control={control}
-            name="proyecto_id"
-            render={({ field }) => (
-              <Select value={field.value || ""} onValueChange={field.onChange}>
-                <VSelectTrigger><SelectValue placeholder="Seleccione proyecto" /></VSelectTrigger>
-                <SelectContent>
-                  {proyectos.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.codigo} — {p.nombre}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
+          {proyectoBloqueado ? (
+            <div className="rounded-r8 border border-bdr bg-surface2 px-3 py-2.5 text-[13px] leading-snug text-t800">
+              <span className="font-mono font-semibold text-copper">{proyectoBloqueado.codigo}</span>
+              <span className="text-t500"> · </span>
+              <span>{proyectoBloqueado.nombre}</span>
+            </div>
+          ) : (
+            <Controller
+              control={control}
+              name="proyecto_id"
+              render={({ field }) => (
+                <Select value={field.value || ""} onValueChange={field.onChange}>
+                  <VSelectTrigger><SelectValue placeholder="Seleccione proyecto" /></VSelectTrigger>
+                  <SelectContent>
+                    {proyectos.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.codigo} — {p.nombre}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          )}
         </Field>
         <Field label="Nombre" error={errors.nombre?.message} required>
           <VInput {...register("nombre")} placeholder="Nombre del entregable" />
@@ -1220,6 +1284,8 @@ export function EntregableFormPanel({ editItem, onSaved, onCancel }: {
         onSubmit={handleSubmit(onSubmit)}
         submitLabel={editItem ? "Actualizar" : "Guardar"}
         isDirty={isDirty}
+        embedMode={embedMode}
+        submitDisabled={!isDirty || isSubmitting}
       />
     </form>
   );
@@ -1488,13 +1554,14 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
   ]);
 
   const onSubmit = (data: RegistroHoraForm) => {
+    const sinProyectoEntregable = tipoHoraSinProyectoEntregable(data.tipo_hora);
     const payload: Omit<RegistroHora, "id" | "created_at" | "updated_at"> = {
       profesional_id: data.profesional_id,
       tipo_hora: data.tipo_hora,
       fecha: data.fecha,
       horas: data.horas,
-      proyecto_id: data.proyecto_id ?? null,
-      entregable_id: data.entregable_id ?? null,
+      proyecto_id: sinProyectoEntregable ? null : (data.proyecto_id ?? null),
+      entregable_id: sinProyectoEntregable ? null : (data.entregable_id ?? null),
       descripcion: data.descripcion ?? null,
     };
     if (editItem) updateRegistroHora(editItem.id, payload);
@@ -1528,9 +1595,9 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
           <Select
             value={watch("tipo_hora") || ""}
             onValueChange={(v) => {
-              const t = v as "DIRECTA" | "INDIRECTA" | "VACACIONES";
+              const t = v as RegistroHoraTipo;
               setValue("tipo_hora", t, { shouldDirty: true });
-              if (t !== "DIRECTA") {
+              if (tipoHoraSinProyectoEntregable(t)) {
                 setValue("proyecto_id", null, { shouldDirty: true });
                 setValue("entregable_id", null, { shouldDirty: true });
               }
@@ -1538,8 +1605,8 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
           >
             <VSelectTrigger><SelectValue placeholder="Tipo" /></VSelectTrigger>
             <SelectContent>
-              {(["DIRECTA", "INDIRECTA", "VACACIONES"] as const).map((t) => (
-                <SelectItem key={t} value={t}>{t}</SelectItem>
+              {REGISTRO_HORA_TIPOS.map((t) => (
+                <SelectItem key={t} value={t}>{etiquetaTipoHoraRegistro(t)}</SelectItem>
               ))}
             </SelectContent>
           </Select>

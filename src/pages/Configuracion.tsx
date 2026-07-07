@@ -212,7 +212,7 @@ CREATE TABLE registro_horas (
   profesional_id UUID REFERENCES profesionales(id),
   proyecto_id UUID REFERENCES proyectos(id),
   entregable_id UUID REFERENCES entregables(id),
-  tipo_hora TEXT CHECK (tipo_hora IN ('DIRECTA','INDIRECTA','VACACIONES')),
+  tipo_hora TEXT CHECK (tipo_hora IN ('DIRECTA','INDIRECTA','VACACIONES','FESTIVO')),
   fecha DATE,
   horas DECIMAL(6,2) DEFAULT 0,
   descripcion TEXT,

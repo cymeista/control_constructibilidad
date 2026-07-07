@@ -34,6 +34,7 @@ import {
   type AuditoriaLiderEquipoItem,
 } from "@/equipo/syncEntregableLider";
 import { recomputarConsumoEnEntregables } from "@/entregables/registroHoraConsumo";
+import type { RegistroHoraTipo } from "@/entregables/registroHoraTipos";
 import {
   hydrateMonedaProyectoFromPersisted,
   hydrateTarifasContractualesFromPersisted,
@@ -356,7 +357,7 @@ export interface RegistroHora {
   profesional_id: string;
   proyecto_id: string | null;
   entregable_id: string | null;
-  tipo_hora: "DIRECTA" | "INDIRECTA" | "VACACIONES";
+  tipo_hora: RegistroHoraTipo;
   fecha: string;
   horas: number;
   descripcion: string | null;

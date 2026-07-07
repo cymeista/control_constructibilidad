@@ -17,6 +17,13 @@ export const kpiCardsGridClassName8 =
 export const kpiCardsGridClassName5 =
   "grid grid-cols-2 items-stretch gap-[14px] max-[320px]:grid-cols-1 sm:grid-cols-2 lg:grid-cols-5";
 
+/** Dashboard: 5 KPI en una sola fila; scroll horizontal en viewports angostos. */
+export const kpiDashboardSingleRowClassName =
+  "flex items-stretch gap-2 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:thin] sm:gap-3 lg:overflow-x-visible";
+
+export const kpiDashboardSingleRowItemClassName =
+  "min-w-[118px] shrink-0 flex-[1_1_0] basis-0 sm:min-w-[142px] lg:min-w-0";
+
 interface KpiCardProps {
   label: string;
   value: string;
@@ -27,6 +34,8 @@ interface KpiCardProps {
   /** Solo si aporta contexto extra; omitir para reducir ruido. */
   tag?: string;
   tagColor?: string;
+  /** Presentación más compacta (p. ej. fila única del Dashboard). */
+  compact?: boolean;
 }
 
 /**
@@ -40,10 +49,15 @@ export default function KpiCard({
   topColor = "#1e4a6e",
   tag,
   tagColor,
+  compact = false,
 }: KpiCardProps) {
   return (
     <div
-      className="flex h-full min-h-[88px] min-w-0 flex-col rounded-r12 border border-bdr bg-white p-3 shadow-sh1 transition-all duration-200 hover:shadow-sh2 sm:min-h-[100px] md:min-h-[120px] sm:p-4"
+      className={
+        compact
+          ? "flex h-full min-h-[76px] min-w-0 flex-col rounded-r10 border border-bdr bg-white p-2.5 shadow-sh1 transition-all duration-200 hover:shadow-sh2 sm:min-h-[84px] sm:p-3"
+          : "flex h-full min-h-[88px] min-w-0 flex-col rounded-r12 border border-bdr bg-white p-3 shadow-sh1 transition-all duration-200 hover:shadow-sh2 sm:min-h-[100px] md:min-h-[120px] sm:p-4"
+      }
       style={{ borderTop: `3px solid ${topColor}` }}
     >
       <span className="line-clamp-2 text-[9px] font-semibold uppercase leading-tight tracking-[0.12em] text-t500">

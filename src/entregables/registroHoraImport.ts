@@ -1,12 +1,17 @@
 /**
  * Importación masiva de horas → RegistroHora (vista previa + payloads).
  * DIRECTA: proyecto + fase/tarea + profesional + fecha + horas (alimenta consumo real vía modelo existente).
- * INDIRECTA / VACACIONES: profesional + fecha + horas; proyecto/entregable se ignoran y persisten en null.
+ * INDIRECTA / VACACIONES / FESTIVO: profesional + fecha + horas; proyecto/entregable se ignoran y persisten en null.
+ * FESTIVO: automático si proyecto_codigo === NC000 (prioridad sobre texto de planilla).
  */
 
 import { format, isValid, parse } from "date-fns";
 import type { Entregable, EquipoEntregable, Profesional, Proyecto, RegistroHora } from "@/context/AppDataContext";
 import { enrichRegistroHoraImportPreviewConAdvertencias } from "@/horas/registroHoraAdvertenciasOperativas";
+import {
+  esFestivoNC000ProyectoCodigo,
+  type RegistroHoraTipo,
+} from "@/entregables/registroHoraTipos";
 
 export const REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS = [
   "proyecto_codigo",
@@ -21,7 +26,7 @@ export const REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS = [
 export type RegistroHoraImportColumn = (typeof REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS)[number];
 
 /** Texto planilla (normalizado) → tipo interno. Claves en minúsculas tras `normalizeTipoHoraText`. */
-export const TIPO_HORA_TEXTO_A_INTERNO: ReadonlyArray<readonly [string, RegistroHora["tipo_hora"]]> = [
+export const TIPO_HORA_TEXTO_A_INTERNO: ReadonlyArray<readonly [string, RegistroHoraTipo]> = [
   ["horas directas", "DIRECTA"],
   ["hora directa", "DIRECTA"],
   ["horas directa", "DIRECTA"],
@@ -34,9 +39,15 @@ export const TIPO_HORA_TEXTO_A_INTERNO: ReadonlyArray<readonly [string, Registro
   ["horas vacaciones", "VACACIONES"],
   ["hora vacaciones", "VACACIONES"],
   ["vacacion", "VACACIONES"],
+  ["festivo", "FESTIVO"],
+  ["horas festivo", "FESTIVO"],
+  ["hora festivo", "FESTIVO"],
+  ["horas festivos", "FESTIVO"],
+  ["hora festivos", "FESTIVO"],
+  ["festivos", "FESTIVO"],
 ];
 
-const TIPO_HORA_LOOKUP = new Map<string, RegistroHora["tipo_hora"]>(
+const TIPO_HORA_LOOKUP = new Map<string, RegistroHoraTipo>(
   TIPO_HORA_TEXTO_A_INTERNO.map(([k, v]) => [k, v]),
 );
 
@@ -83,7 +94,7 @@ function normalizeTipoHoraText(s: string): string {
 }
 
 /** Resuelve texto de planilla a enum interno; null si no hay entrada en la tabla. */
-export function mapTipoHoraFromPlanilla(text: string): RegistroHora["tipo_hora"] | null {
+export function mapTipoHoraFromPlanilla(text: string): RegistroHoraTipo | null {
   const key = normalizeTipoHoraText(text);
   if (!key) return null;
   return TIPO_HORA_LOOKUP.get(key) ?? null;
@@ -325,10 +336,14 @@ export function buildRegistroHoraImportPreview(
     const lineIndex = r;
     const errors: string[] = [];
     const profCod = cells.profesional_codigo.trim();
+    const proyectoCod = (cells.proyecto_codigo ?? "").trim();
+    const esFestivoNC000 = esFestivoNC000ProyectoCodigo(proyectoCod);
 
-    if (!(cells.tipo_hora ?? "").trim()) errors.push("tipo_hora vacío");
-    const tipoResolved = mapTipoHoraFromPlanilla(cells.tipo_hora ?? "");
-    if ((cells.tipo_hora ?? "").trim() && tipoResolved === null) {
+    if (!(cells.tipo_hora ?? "").trim() && !esFestivoNC000) errors.push("tipo_hora vacío");
+    let tipoResolved = mapTipoHoraFromPlanilla(cells.tipo_hora ?? "");
+    if (esFestivoNC000) {
+      tipoResolved = "FESTIVO";
+    } else if ((cells.tipo_hora ?? "").trim() && tipoResolved === null) {
       errors.push("tipo_hora no reconocido");
     }
 
@@ -398,7 +413,11 @@ export function buildRegistroHoraImportPreview(
           descripcion: null,
         };
       }
-    } else if (tipoResolved === "INDIRECTA" || tipoResolved === "VACACIONES") {
+    } else if (
+      tipoResolved === "INDIRECTA" ||
+      tipoResolved === "VACACIONES" ||
+      tipoResolved === "FESTIVO"
+    ) {
       canImport =
         errors.length === 0 && horasParsed.ok && Boolean(fechaIso) && Boolean(profesional_id);
       if (canImport && horasParsed.ok) {

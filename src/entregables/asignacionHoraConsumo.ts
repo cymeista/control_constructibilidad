@@ -10,6 +10,7 @@ import type {
   Proyecto,
   RegistroHora,
 } from "@/context/AppDataContext";
+import type { RegistroHoraTipo } from "@/entregables/registroHoraTipos";
 import {
   esRegistroConsumoRealValido,
   type EntregableConsumoTarget,
@@ -429,7 +430,7 @@ const EPS_EXCESO = 1e-6;
 const ID_REG_HORA_SIM = "__sim_directa_pendiente__";
 
 export type SimulacionRegistroDirecta = {
-  tipo_hora: "DIRECTA" | "INDIRECTA" | "VACACIONES";
+  tipo_hora: RegistroHoraTipo;
   profesional_id: string;
   proyecto_id: string | null;
   entregable_id: string | null;
