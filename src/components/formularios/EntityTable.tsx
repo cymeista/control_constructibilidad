@@ -34,6 +34,9 @@ interface EntityTableProps<T extends { id: string }> {
   renderMobileCard?: (item: T) => ReactNode;
   /** Acciones extra en el pie de la card móvil (ej. Normalizar). */
   renderMobileCardExtra?: (item: T) => ReactNode;
+  /** Búsqueda controlada (p. ej. para sincronizar totales externos con la tabla). */
+  search?: string;
+  onSearchChange?: (value: string) => void;
 }
 
 function buildSearchBlob<T extends { id: string }>(
@@ -53,6 +56,16 @@ function buildSearchBlob<T extends { id: string }>(
   return parts.join(" ").toLowerCase();
 }
 
+export function matchesEntityTableSearch<T extends { id: string }>(
+  item: T,
+  termNorm: string,
+  searchFields: (keyof T)[],
+  searchExtraText?: (row: T) => string,
+): boolean {
+  if (!termNorm) return true;
+  return buildSearchBlob(item, searchFields, searchExtraText).includes(termNorm);
+}
+
 export default function EntityTable<T extends { id: string }>({
   data,
   columns,
@@ -65,21 +78,23 @@ export default function EntityTable<T extends { id: string }>({
   extraRowActions,
   renderMobileCard,
   renderMobileCardExtra,
+  search: controlledSearch,
+  onSearchChange,
 }: EntityTableProps<T>) {
   const isBelowMd = useIsBelowMd();
   const useMobileCards = isBelowMd && !!renderMobileCard;
 
-  const [search, setSearch] = useState("");
+  const [internalSearch, setInternalSearch] = useState("");
+  const search = controlledSearch ?? internalSearch;
+  const setSearch = onSearchChange ?? setInternalSearch;
   const [page, setPage] = useState(1);
   const perPage = 20;
 
   const termNorm = search.trim().toLowerCase();
 
-  const filtered = data.filter((item) => {
-    if (!termNorm) return true;
-    const blob = buildSearchBlob(item, searchFields, searchExtraText);
-    return blob.includes(termNorm);
-  });
+  const filtered = data.filter((item) =>
+    matchesEntityTableSearch(item, termNorm, searchFields, searchExtraText),
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
   const paginated = filtered.slice((page - 1) * perPage, page * perPage);

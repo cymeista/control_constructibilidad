@@ -27,7 +27,8 @@ import { formatoResumenMonedaProyecto } from "@/proyectos/proyectoMoneda";
 import { analizarBloqueoEliminacionProyectos } from "@/proyectos/proyectoEliminacionRegla";
 
 import EntitySelector, { type EntityType } from "@/components/formularios/EntitySelector";
-import EntityTable from "@/components/formularios/EntityTable";
+import EntityTable, { matchesEntityTableSearch } from "@/components/formularios/EntityTable";
+import { kpiDashboardSingleRowClassName, kpiDashboardSingleRowItemClassName } from "@/components/KpiCard";
 import { MobileCardRow } from "@/components/formularios/EntityMobileCardRows";
 import {
   ClienteFormPanel,
@@ -294,6 +295,7 @@ export default function Formularios() {
   const [cerrarAsignacion, setCerrarAsignacion] = useState<AsignacionHora | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [registroHorasImportOpen, setRegistroHorasImportOpen] = useState(false);
+  const [registroHorasListSearch, setRegistroHorasListSearch] = useState("");
   const [normalizarBrecha, setNormalizarBrecha] = useState<BrechaHistoricaParResultado | null>(null);
   const [filtroVisibilidadEntregables, setFiltroVisibilidadEntregables] =
     useState<FiltroVisibilidadEntregablesCrud>("todos");
@@ -1008,25 +1010,48 @@ export default function Formularios() {
     };
   }, [filasBrechasHistoricas, filasBrechasFiltradas]);
 
-  /** Consolidado visible: suma simple de `registro_horas` por tipo (no consumo real ni asignaciones). */
+  /** Consolidado visible: suma simple de `registro_horas` por tipo (misma búsqueda que la tabla operativa). */
+  const registroHorasSearchExtra = useCallback(
+    (r: RegistroHora) =>
+      registroHoraTablaSearchBlob(r, data.profesionales, data.proyectos, data.entregables),
+    [data.profesionales, data.proyectos, data.entregables],
+  );
+
+  const registroHorasFiltradosOperativo = useMemo(() => {
+    const termNorm = registroHorasListSearch.trim().toLowerCase();
+    const searchFields: (keyof RegistroHora)[] = [
+      "fecha",
+      "descripcion",
+      "tipo_hora",
+      "proyecto_id",
+      "entregable_id",
+    ];
+    return data.registro_horas.filter((r) =>
+      matchesEntityTableSearch(r, termNorm, searchFields, registroHorasSearchExtra),
+    );
+  }, [data.registro_horas, registroHorasListSearch, registroHorasSearchExtra]);
+
   const totalesRegistroHorasPorTipo = useMemo(() => {
     let directa = 0;
     let indirecta = 0;
     let vacaciones = 0;
-    for (const r of data.registro_horas) {
+    let festivos = 0;
+    for (const r of registroHorasFiltradosOperativo) {
       const h = Number(r.horas);
       if (!Number.isFinite(h) || h <= 0) continue;
       if (r.tipo_hora === "DIRECTA") directa += h;
       else if (r.tipo_hora === "INDIRECTA") indirecta += h;
       else if (r.tipo_hora === "VACACIONES") vacaciones += h;
+      else if (r.tipo_hora === "FESTIVO") festivos += h;
     }
     return {
       directa,
       indirecta,
       vacaciones,
-      total: directa + indirecta + vacaciones,
+      festivos,
+      total: directa + indirecta + vacaciones + festivos,
     };
-  }, [data.registro_horas]);
+  }, [registroHorasFiltradosOperativo]);
 
   const counts: Record<EntityType, number> = {
     clientes: data.clientes.length,
@@ -2461,6 +2486,8 @@ export default function Formularios() {
           <EntityTable<RegistroHora>
             data={data.registro_horas}
             entityLabel="registros de horas"
+            search={registroHorasListSearch}
+            onSearchChange={setRegistroHorasListSearch}
             searchFields={["fecha", "descripcion", "tipo_hora", "proyecto_id", "entregable_id"]}
             searchExtraText={(r) =>
               registroHoraTablaSearchBlob(r, data.profesionales, data.proyectos, data.entregables)
@@ -2858,34 +2885,50 @@ export default function Formularios() {
           <div className="border-b border-bdr bg-surface2 px-4 py-3 sm:px-6">
             <h3 className="text-[13px] font-semibold text-t900">Horas cargadas por tipo</h3>
             <p className="mt-0.5 text-[11px] text-t500">
-              Suma de todos los registros en datos (<span className="font-mono">tipo_hora</span> +{" "}
+              Suma de registros visibles según la búsqueda del listado (<span className="font-mono">tipo_hora</span> +{" "}
               <span className="font-mono">horas</span>); sin filtrar por entregable ni asignación. No altera consumo
               real del entregable.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 sm:p-5">
-            <div className="rounded-r10 border border-bdr bg-surface2/80 px-3 py-3 sm:px-4">
+          <div className={`${kpiDashboardSingleRowClassName} p-4 sm:p-5`}>
+            <div
+              className={`${kpiDashboardSingleRowItemClassName} rounded-r10 border border-[#B45309]/35 bg-[#B45309]/08 px-3 py-3 sm:px-4`}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#9A3412]">Total general</p>
+              <p className="mt-1 font-mono text-[1.1rem] font-semibold tabular-nums text-t900">
+                {fmtNumBrecha(totalesRegistroHorasPorTipo.total)} h
+              </p>
+            </div>
+            <div
+              className={`${kpiDashboardSingleRowItemClassName} rounded-r10 border border-bdr bg-surface2/80 px-3 py-3 sm:px-4`}
+            >
               <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-t400">Directas</p>
               <p className="mt-1 font-mono text-[1.1rem] font-semibold tabular-nums text-t900">
                 {fmtNumBrecha(totalesRegistroHorasPorTipo.directa)} h
               </p>
             </div>
-            <div className="rounded-r10 border border-bdr bg-surface2/80 px-3 py-3 sm:px-4">
+            <div
+              className={`${kpiDashboardSingleRowItemClassName} rounded-r10 border border-bdr bg-surface2/80 px-3 py-3 sm:px-4`}
+            >
               <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-t400">Indirectas</p>
               <p className="mt-1 font-mono text-[1.1rem] font-semibold tabular-nums text-t900">
                 {fmtNumBrecha(totalesRegistroHorasPorTipo.indirecta)} h
               </p>
             </div>
-            <div className="rounded-r10 border border-bdr bg-surface2/80 px-3 py-3 sm:px-4">
+            <div
+              className={`${kpiDashboardSingleRowItemClassName} rounded-r10 border border-bdr bg-surface2/80 px-3 py-3 sm:px-4`}
+            >
               <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-t400">Vacaciones</p>
               <p className="mt-1 font-mono text-[1.1rem] font-semibold tabular-nums text-t900">
                 {fmtNumBrecha(totalesRegistroHorasPorTipo.vacaciones)} h
               </p>
             </div>
-            <div className="rounded-r10 border border-[#B45309]/35 bg-[#B45309]/08 px-3 py-3 sm:px-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#9A3412]">Total general</p>
+            <div
+              className={`${kpiDashboardSingleRowItemClassName} rounded-r10 border border-[#6D28D9]/30 bg-[#EDE9FE]/50 px-3 py-3 sm:px-4`}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#6D28D9]">Horas festivos</p>
               <p className="mt-1 font-mono text-[1.1rem] font-semibold tabular-nums text-t900">
-                {fmtNumBrecha(totalesRegistroHorasPorTipo.total)} h
+                {fmtNumBrecha(totalesRegistroHorasPorTipo.festivos)} h
               </p>
             </div>
           </div>
