@@ -84,6 +84,24 @@ function test(name: string, ok: boolean) {
 }
 
 test(
+  "0 — tipo explícito HORAS FESTIVOS",
+  runImportCase(
+    "  tipo FESTIVO sin proyecto",
+    csvRow({
+      proyecto_codigo: "",
+      cod_fase: "",
+      cod_tarea: "",
+      tipo_hora: "HORAS FESTIVOS",
+    }),
+    "FESTIVO",
+    (p) => {
+      test("  proyecto_id null", p.proyecto_id === null);
+      test("  entregable_id null", p.entregable_id === null);
+    },
+  ),
+);
+
+test(
   "1 — proyecto_codigo = NC000",
   runImportCase(
     "  tipo FESTIVO",

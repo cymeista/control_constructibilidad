@@ -5,8 +5,14 @@ import {
   REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS,
   buildRegistroHoraImportPreview,
   downloadRegistroHoraImportErroresExcel,
+  mapTipoHoraFromPlanilla,
   payloadsFromOkRows,
+  type RegistroHoraImportPreviewRow,
 } from "@/entregables/registroHoraImport";
+import {
+  esFestivoNC000EnPlanilla,
+  etiquetaTipoHoraRegistro,
+} from "@/entregables/registroHoraTipos";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,6 +30,36 @@ type Props = {
   onSuccess?: (importedCount: number) => void;
 };
 
+function importTipoHoraPreviewContent(row: RegistroHoraImportPreviewRow): {
+  etiqueta: string;
+  nota: string | null;
+} {
+  const tipoResuelto = row.payload?.tipo_hora;
+  if (!tipoResuelto) {
+    return { etiqueta: (row.cells.tipo_hora ?? "").trim() || "—", nota: null };
+  }
+
+  const etiqueta = etiquetaTipoHoraRegistro(tipoResuelto);
+  const origenTexto = (row.cells.tipo_hora ?? "").trim();
+  const tipoOrigen = origenTexto ? mapTipoHoraFromPlanilla(origenTexto) : null;
+  if (tipoOrigen === tipoResuelto) {
+    return { etiqueta, nota: null };
+  }
+
+  const reclasificadoPorNc000 =
+    tipoResuelto === "FESTIVO" &&
+    esFestivoNC000EnPlanilla(row.cells.proyecto_codigo ?? "", row.cells.cod_tarea ?? "");
+  if (reclasificadoPorNc000) {
+    const origenLabel = origenTexto || "(vacío)";
+    return { etiqueta, nota: `Origen: ${origenLabel} · reclasificado por NC000` };
+  }
+
+  if (origenTexto) {
+    return { etiqueta, nota: `Origen: ${origenTexto}` };
+  }
+  return { etiqueta, nota: null };
+}
+
 export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess }: Props) {
   const { proyectos, entregables, profesionales, registro_horas, equipo_entregable, addRegistroHorasBatch } =
     useAppData();
@@ -40,6 +76,12 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
         equipo_entregable,
       }),
     [csvText, proyectos, entregables, profesionales, registro_horas, equipo_entregable],
+  );
+
+  const festivosCount = useMemo(
+    () =>
+      preview.rows.filter((r) => r.status === "OK" && r.payload?.tipo_hora === "FESTIVO").length,
+    [preview.rows],
   );
 
   const reset = useCallback(() => {
@@ -129,6 +171,9 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
                 <span className="text-amber-700">
                   Con advertencia: <strong className="font-mono">{preview.totals.warn ?? 0}</strong>
                 </span>
+                <span className="text-violet-700">
+                  Festivos: <strong className="font-mono">{festivosCount}</strong>
+                </span>
               </div>
             )}
           </div>
@@ -174,7 +219,19 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
                       <td className="px-2 py-1.5 font-mono">{row.cells.profesional_codigo}</td>
                       <td className="px-2 py-1.5 font-mono">{row.cells.fecha}</td>
                       <td className="px-2 py-1.5 font-mono">{row.cells.horas}</td>
-                      <td className="px-2 py-1.5">{row.cells.tipo_hora}</td>
+                      <td className="px-2 py-1.5">
+                        {(() => {
+                          const { etiqueta, nota } = importTipoHoraPreviewContent(row);
+                          return (
+                            <div className="space-y-0.5">
+                              <div>{etiqueta}</div>
+                              {nota ? (
+                                <div className="text-[9px] leading-tight text-t400">{nota}</div>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="max-w-[90px] truncate px-2 py-1.5 font-mono text-[10px] text-t500">
                         {row.proyecto_id ?? "—"}
                       </td>
