@@ -24,10 +24,6 @@ import {
   type ResumenAplicacionMigracionEquipo,
 } from "@/equipo/aplicarMigracionEquipoEntregable";
 import { computePreviewMigracionEquipoEntregable } from "@/equipo/previewMigracionEquipoEntregable";
-import {
-  aplicarMigracionFestivosHistoricosEnRegistros,
-  type MigracionFestivosAplicacionResult,
-} from "@/horas/migracionFestivosHistoricosPreflight";
 import { aplicarReglaUnicoLider } from "@/equipo/equipoEntregableRules";
 import {
   auditarSincronizacionLideresConEquipo,
@@ -576,8 +572,6 @@ interface AppDataContextValue extends AppData {
    * No modifica asignaciones_horas ni incluye sugeridos por gasto real.
    */
   aplicarMigracionEquipoEntregable: () => ResumenAplicacionMigracionEquipo;
-  /** TEMP PASO 3B: reclasifica 24 registros INDIRECTA → FESTIVO según manifiesto cerrado. */
-  aplicarMigracionFestivosHistoricos: () => MigracionFestivosAplicacionResult;
   agregarIntegranteEquipoEntregable: (input: {
     entregable_id: string;
     profesional_id: string;
@@ -1824,30 +1818,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     return resumen;
   }, []);
 
-  const aplicarMigracionFestivosHistoricos = useCallback((): MigracionFestivosAplicacionResult => {
-    let outcome: MigracionFestivosAplicacionResult = { ok: false, error: "No aplicado" };
-    setData((prev) => {
-      const applied = aplicarMigracionFestivosHistoricosEnRegistros(
-        prev.registro_horas,
-        prev.profesionales,
-        now(),
-      );
-      if (!applied.ok) {
-        outcome = { ok: false, error: applied.error };
-        return prev;
-      }
-      const nextEnts = recomputarConsumoEnEntregables(
-        prev.entregables,
-        applied.next,
-        prev.proyectos,
-        prev.profesionales,
-      );
-      outcome = applied.result;
-      return { ...prev, registro_horas: applied.next, entregables: nextEnts };
-    });
-    return outcome;
-  }, []);
-
   const agregarIntegranteEquipoEntregable = useCallback(
     (input: {
       entregable_id: string;
@@ -2665,7 +2635,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     repararImputacionesCierreAsignaciones,
     deleteAsignacionHora,
     aplicarMigracionEquipoEntregable,
-    aplicarMigracionFestivosHistoricos,
     agregarIntegranteEquipoEntregable,
     cambiarRolIntegranteEquipoEntregable,
     quitarIntegranteEquipoEntregable,
@@ -2708,7 +2677,6 @@ export function useAppDataPersistence() {
 
 export type { HistorialRedistribucionHoras, HorasPorCategoria } from "@/entregables/redistribucionHorasEntregable";
 export type { ResumenAplicacionMigracionEquipo } from "@/equipo/aplicarMigracionEquipoEntregable";
-export type { MigracionFestivosAplicacionResult } from "@/horas/migracionFestivosHistoricosPreflight";
 
 export function useAppData() {
   const ctx = useContext(AppDataContext);
