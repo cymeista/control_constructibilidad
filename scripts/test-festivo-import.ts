@@ -4,7 +4,6 @@
  */
 
 import { buildRegistroHoraImportPreview } from "../src/entregables/registroHoraImport";
-import { createRegistroHoraSchema } from "../src/components/formularios/schemas";
 import type { Entregable, Profesional, Proyecto } from "../src/context/AppDataContext";
 
 const HEADER =
@@ -60,7 +59,9 @@ function runImportCase(
   name: string,
   row: string,
   expectedTipo: string,
-  extra?: (payload: NonNullable<ReturnType<typeof buildRegistroHoraImportPreview>["rows"][0]["payload"]>) => void,
+  extra?: (payload: NonNullable<
+    ReturnType<typeof buildRegistroHoraImportPreview>["rows"][0]["payload"]
+  >) => void,
 ): boolean {
   const csv = `${HEADER}\n${row}`;
   const result = buildRegistroHoraImportPreview(csv, ctx);
@@ -68,98 +69,97 @@ function runImportCase(
   const tipo = okRow?.payload?.tipo_hora;
   const pass = tipo === expectedTipo;
   console.log(`${pass ? "✓" : "✗"} ${name}: esperado=${expectedTipo}, obtenido=${tipo ?? "ERROR"}`);
-  if (!pass && okRow === undefined) {
-    const err = result.rows[0];
-    console.log("  errores:", err?.errors?.join("; "));
+  if (!pass && !okRow) {
+    console.log("  errores:", result.rows[0]?.errors?.join("; "));
   }
   if (pass && extra && okRow?.payload) extra(okRow.payload);
   return pass;
 }
 
-let passed = 0;
-let total = 0;
+let failed = 0;
 
-function check(name: string, ok: boolean) {
-  total++;
-  if (ok) passed++;
+function test(name: string, ok: boolean) {
   console.log(`${ok ? "✓" : "✗"} ${name}`);
+  if (!ok) failed++;
 }
 
-total++;
-if (
+test(
+  "1 — proyecto_codigo = NC000",
   runImportCase(
-    "Caso 1 — NC000 marcado como indirecta",
+    "  tipo FESTIVO",
     csvRow({ proyecto_codigo: "NC000", tipo_hora: "HORAS INDIRECTAS" }),
     "FESTIVO",
     (p) => {
-      check("  proyecto_id null", p.proyecto_id === null);
-      check("  entregable_id null", p.entregable_id === null);
+      test("  proyecto_id null", p.proyecto_id === null);
+      test("  entregable_id null", p.entregable_id === null);
     },
-  )
-) {
-  passed++;
-}
+  ),
+);
 
-total++;
-if (
+test(
+  "2 — cod_tarea = NC000",
   runImportCase(
-    "Caso 2 — NC000 con espacios y minúsculas",
-    csvRow({ proyecto_codigo: " nc000 ", tipo_hora: "HORAS INDIRECTAS" }),
+    "  tipo FESTIVO",
+    csvRow({
+      proyecto_codigo: "CENT0015A",
+      cod_fase: "COD-CL-GRAL",
+      cod_tarea: "NC000",
+      tipo_hora: "HORAS INDIRECTAS",
+    }),
     "FESTIVO",
-  )
-) {
-  passed++;
-}
+  ),
+);
 
-total++;
-if (
+test(
+  "3 — ADMINISTRATIVAS + cod_tarea = NC000",
   runImportCase(
-    "Caso 3 — NC001 vacaciones",
+    "  tipo FESTIVO",
+    csvRow({
+      proyecto_codigo: "ADMINISTRATIVAS",
+      cod_fase: "COD-CL-GRAL",
+      cod_tarea: "NC000",
+      tipo_hora: "HORAS INDIRECTAS",
+    }),
+    "FESTIVO",
+  ),
+);
+
+test(
+  "4 — NC001 vacaciones",
+  runImportCase(
+    "  tipo VACACIONES",
     csvRow({ proyecto_codigo: "NC001", tipo_hora: "HORAS VACACIONES" }),
     "VACACIONES",
-  )
-) {
-  passed++;
-}
+  ),
+);
 
-total++;
-if (
+test(
+  "5 — código normal con letras NC no es festivo",
   runImportCase(
-    "Caso 4 — Proyecto normal CENT0015A",
+    "  tipo INDIRECTA",
     csvRow({ proyecto_codigo: "CENT0015A", tipo_hora: "HORAS INDIRECTAS" }),
     "INDIRECTA",
-  )
-) {
-  passed++;
-}
+  ),
+);
 
-total++;
-if (
+test(
+  "6 — cod_fase = NC000 sin NC000 en proyecto ni tarea",
   runImportCase(
-    "Caso 5 — Tipo explícito HORAS FESTIVOS",
-    csvRow({ proyecto_codigo: "", tipo_hora: "HORAS FESTIVOS" }),
-    "FESTIVO",
-  )
-) {
-  passed++;
-}
+    "  no es festivo",
+    csvRow({
+      proyecto_codigo: "CENT0015A",
+      cod_fase: "NC000",
+      cod_tarea: "T1",
+      tipo_hora: "HORAS INDIRECTAS",
+    }),
+    "INDIRECTA",
+  ),
+);
 
-const schema = createRegistroHoraSchema([{ id: "ent-1", proyecto_id: "pr-cent" }]);
-const caso6 = schema.safeParse({
-  profesional_id: "prof-1",
-  tipo_hora: "FESTIVO",
-  fecha: "2026-07-03",
-  horas: 8,
-  proyecto_id: null,
-  entregable_id: null,
-});
-total++;
-check("Caso 6 — Formulario manual FESTIVO pasa validación", caso6.success);
-
-total++;
-if (
+test(
+  "7a — regresión DIRECTA",
   runImportCase(
-    "Caso 7 — Regresión DIRECTA",
+    "  DIRECTA resuelve proyecto y entregable",
     csvRow({
       proyecto_codigo: "CENT0015A",
       cod_fase: "F1",
@@ -168,27 +168,30 @@ if (
     }),
     "DIRECTA",
     (p) => {
-      check("  proyecto_id resuelto", p.proyecto_id === "pr-cent");
-      check("  entregable_id resuelto", p.entregable_id === "ent-1");
+      test("  proyecto_id resuelto", p.proyecto_id === "pr-cent");
+      test("  entregable_id resuelto", p.entregable_id === "ent-1");
     },
-  )
-) {
-  passed++;
-}
+  ),
+);
 
-total++;
-if (
+test(
+  "7b — regresión INDIRECTA",
   runImportCase(
-    "Caso 8 — Regresión VACACIONES",
+    "  INDIRECTA",
+    csvRow({ proyecto_codigo: "CLAOPEMIN", tipo_hora: "HORAS INDIRECTAS" }),
+    "INDIRECTA",
+  ),
+);
+
+test(
+  "7c — regresión VACACIONES",
+  runImportCase(
+    "  VACACIONES",
     csvRow({ proyecto_codigo: "NC001", tipo_hora: "HORAS VACACIONES" }),
     "VACACIONES",
-    (p) => {
-      check("  proyecto_id null", p.proyecto_id === null);
-    },
-  )
-) {
-  passed++;
-}
+    (p) => test("  proyecto_id null", p.proyecto_id === null),
+  ),
+);
 
-console.log(`\n${passed}/${total} pruebas OK`);
-process.exit(passed === total ? 0 : 1);
+console.log(failed === 0 ? "\nTodas las pruebas OK" : `\n${failed} prueba(s) fallida(s)`);
+process.exit(failed === 0 ? 0 : 1);

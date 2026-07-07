@@ -6,9 +6,19 @@ export const REGISTRO_HORA_TIPOS = ["DIRECTA", "INDIRECTA", "VACACIONES", "FESTI
 
 export type RegistroHoraTipo = (typeof REGISTRO_HORA_TIPOS)[number];
 
-/** Festivos en planilla: solo `proyecto_codigo` exacto NC000 (no startsWith). */
+/**
+ * Festivos en planilla: `NC000` exacto en `proyecto_codigo` o `cod_tarea` (no startsWith; no `cod_fase`).
+ */
+export function esFestivoNC000EnPlanilla(proyectoCodigo: string, codTarea: string): boolean {
+  return (
+    proyectoCodigo.trim().toUpperCase() === "NC000" ||
+    codTarea.trim().toUpperCase() === "NC000"
+  );
+}
+
+/** @deprecated Usar `esFestivoNC000EnPlanilla`. */
 export function esFestivoNC000ProyectoCodigo(proyectoCodigo: string): boolean {
-  return proyectoCodigo.trim().toUpperCase() === "NC000";
+  return esFestivoNC000EnPlanilla(proyectoCodigo, "");
 }
 
 export function tipoHoraSinProyectoEntregable(tipo: RegistroHoraTipo): boolean {

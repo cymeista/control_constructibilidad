@@ -89,9 +89,10 @@ export default function RegistroHoraImportDialog({ open, onOpenChange, onSuccess
             <span className="font-mono text-[11px]">{REGISTRO_HORA_IMPORT_REQUIRED_COLUMNS.join(", ")}</span>. La
             validación depende de <strong className="font-medium">tipo_hora</strong>: DIRECTA exige proyecto y
             entregable (fase/tarea); INDIRECTA, VACACIONES y FESTIVO solo profesional, fecha y horas (proyecto/fase/tarea
-            se ignoran). Si <span className="font-mono">proyecto_codigo</span> es exactamente{" "}
-            <span className="font-mono">NC000</span>, la fila se clasifica como FESTIVO aunque la planilla diga HORAS
-            INDIRECTAS. Revise la vista previa antes de confirmar.
+            se ignoran). Si <span className="font-mono">proyecto_codigo</span> o{" "}
+            <span className="font-mono">cod_tarea</span> es exactamente <span className="font-mono">NC000</span>, la
+            fila se clasifica como FESTIVO aunque la planilla diga HORAS INDIRECTAS. Revise la vista previa antes de
+            confirmar.
           </DialogDescription>
         </DialogHeader>
 

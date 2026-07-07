@@ -2,14 +2,14 @@
  * Importación masiva de horas → RegistroHora (vista previa + payloads).
  * DIRECTA: proyecto + fase/tarea + profesional + fecha + horas (alimenta consumo real vía modelo existente).
  * INDIRECTA / VACACIONES / FESTIVO: profesional + fecha + horas; proyecto/entregable se ignoran y persisten en null.
- * FESTIVO: automático si proyecto_codigo === NC000 (prioridad sobre texto de planilla).
+ * FESTIVO: automático si proyecto_codigo o cod_tarea === NC000 (prioridad sobre texto de planilla).
  */
 
 import { format, isValid, parse } from "date-fns";
 import type { Entregable, EquipoEntregable, Profesional, Proyecto, RegistroHora } from "@/context/AppDataContext";
 import { enrichRegistroHoraImportPreviewConAdvertencias } from "@/horas/registroHoraAdvertenciasOperativas";
 import {
-  esFestivoNC000ProyectoCodigo,
+  esFestivoNC000EnPlanilla,
   type RegistroHoraTipo,
 } from "@/entregables/registroHoraTipos";
 
@@ -337,7 +337,8 @@ export function buildRegistroHoraImportPreview(
     const errors: string[] = [];
     const profCod = cells.profesional_codigo.trim();
     const proyectoCod = (cells.proyecto_codigo ?? "").trim();
-    const esFestivoNC000 = esFestivoNC000ProyectoCodigo(proyectoCod);
+    const codTarea = (cells.cod_tarea ?? "").trim();
+    const esFestivoNC000 = esFestivoNC000EnPlanilla(proyectoCod, codTarea);
 
     if (!(cells.tipo_hora ?? "").trim() && !esFestivoNC000) errors.push("tipo_hora vacío");
     let tipoResolved = mapTipoHoraFromPlanilla(cells.tipo_hora ?? "");
