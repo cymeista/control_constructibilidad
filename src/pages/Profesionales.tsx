@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronRight, ClipboardList, Target } from "lucide-react";
 import SectionHeader from "@/components/SectionHeader";
-import KpiCard, { kpiCardsGridClassName5 } from "@/components/KpiCard";
+import KpiCard, {
+  kpiDashboardSingleRowClassName,
+  kpiDashboardSingleRowItemClassName,
+} from "@/components/KpiCard";
 import { useIsBelowMd } from "@/hooks/useIsBelowMd";
 import { useAppData } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
@@ -553,6 +556,7 @@ export default function ProfesionalesPage() {
         directas: 0,
         indirectas: 0,
         vacaciones: 0,
+        festivos: 0,
         cargabilidadPct: null as number | null,
       };
     }
@@ -563,9 +567,10 @@ export default function ProfesionalesPage() {
     const directas = sumTipo("DIRECTA");
     const indirectas = sumTipo("INDIRECTA");
     const vacaciones = sumTipo("VACACIONES");
+    const festivos = sumTipo("FESTIVO");
     const denom = directas + indirectas;
     const cargabilidadPct = denom === 0 ? null : (directas / denom) * 100;
-    return { directas, indirectas, vacaciones, cargabilidadPct };
+    return { directas, indirectas, vacaciones, festivos, cargabilidadPct };
   }, [registrosProf, selected]);
 
   const ventaAcumuladaAnual = useMemo(() => {
@@ -819,65 +824,97 @@ export default function ProfesionalesPage() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.22 }}
               >
-                <div className="mb-[14px] grid grid-cols-2 gap-2 rounded-r12 border border-bdr bg-white p-3 shadow-sh1 md:hidden">
-                  <div>
+                <div className="mb-[14px] flex items-stretch gap-2 overflow-x-auto overscroll-x-contain rounded-r12 border border-bdr bg-white p-3 shadow-sh1 [scrollbar-width:thin] md:hidden">
+                  <div className="min-w-[100px] shrink-0">
                     <p className="text-[9px] font-semibold uppercase text-t400">Cargo</p>
                     <p className="text-[12px] font-medium text-t800">{selected.cargo}</p>
                   </div>
-                  <div>
-                    <p className="text-[9px] font-semibold uppercase text-t400">Cargabilidad</p>
-                    <p className="font-mono text-[12px] font-semibold text-t800">{cargabilidadLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-semibold uppercase text-t400">Horas directas</p>
+                  <div className="min-w-[88px] shrink-0">
+                    <p className="text-[9px] font-semibold uppercase text-t400">Directas</p>
                     <p className="font-mono text-[12px] font-semibold text-t800">{fmtHoras1(kpis.directas)} h</p>
                   </div>
-                  <div>
-                    <p className="text-[9px] font-semibold uppercase text-t400">Horas indirectas</p>
+                  <div className="min-w-[88px] shrink-0">
+                    <p className="text-[9px] font-semibold uppercase text-t400">Indirectas</p>
                     <p className="font-mono text-[12px] font-semibold text-t800">{fmtHoras1(kpis.indirectas)} h</p>
+                  </div>
+                  <div className="min-w-[88px] shrink-0">
+                    <p className="text-[9px] font-semibold uppercase text-t400">Vacaciones</p>
+                    <p className="font-mono text-[12px] font-semibold text-t800">{fmtHoras1(kpis.vacaciones)} h</p>
+                  </div>
+                  <div className="min-w-[88px] shrink-0">
+                    <p className="text-[9px] font-semibold uppercase text-t400">Festivos</p>
+                    <p className="font-mono text-[12px] font-semibold text-t800">{fmtHoras1(kpis.festivos)} h</p>
+                  </div>
+                  <div className="min-w-[88px] shrink-0">
+                    <p className="text-[9px] font-semibold uppercase text-t400">Cargabilidad</p>
+                    <p className="font-mono text-[12px] font-semibold text-t800">{cargabilidadLabel}</p>
                   </div>
                 </div>
 
                 {/* KPIs */}
-                <div className={`mb-[18px] ${kpiCardsGridClassName5}`}>
-                  <KpiCard
-                    label="Horas directas totales"
-                    value={`${fmtHoras1(kpis.directas)} h`}
-                    subtitle={isBelowMd ? "Tipo DIRECTA" : "Suma tipo DIRECTA (solo horas > 0)"}
-                    topColor="#4F46E5"
-                  />
-                  <KpiCard
-                    label="Horas indirectas totales"
-                    value={`${fmtHoras1(kpis.indirectas)} h`}
-                    subtitle={isBelowMd ? "Tipo INDIRECTA" : "Suma tipo INDIRECTA (solo horas > 0)"}
-                    topColor="#047857"
-                  />
-                  <KpiCard
-                    label="Horas de vacaciones"
-                    value={`${fmtHoras1(kpis.vacaciones)} h`}
-                    subtitle={isBelowMd ? "Tipo VACACIONES" : "Suma tipo VACACIONES (solo horas > 0)"}
-                    topColor="#6366F1"
-                  />
-                  <KpiCard
-                    label="% de cargabilidad"
-                    value={cargabilidadLabel}
-                    subtitle={isBelowMd ? "Directas / (dir.+ind.)" : "Directas ÷ (directas + indirectas); sin vacaciones"}
-                    topColor="#3730A3"
-                    tag={kpis.cargabilidadPct === null ? undefined : "Referencia"}
-                    tagColor={cargColor}
-                  />
-                  <KpiCard
-                    label="Venta acumulada anual"
-                    value={`${fmtUf2(ventaAcumuladaAnual.uf)} UF`}
-                    subtitle={
-                      isBelowMd
-                        ? `${ventaAcumuladaAnual.year} · directas UF`
-                        : `${ventaAcumuladaAnual.year} · horas directas valorizadas`
-                    }
-                    topColor="#0D9488"
-                    tag={ventaAcumuladaAnual.noValorizados > 0 ? `${ventaAcumuladaAnual.noValorizados} sin tarifa` : undefined}
-                    tagColor={ventaAcumuladaAnual.noValorizados > 0 ? "#B91C1C" : undefined}
-                  />
+                <div className={`mb-[18px] ${kpiDashboardSingleRowClassName}`}>
+                  <div className={kpiDashboardSingleRowItemClassName}>
+                    <KpiCard
+                      compact
+                      label="Horas directas totales"
+                      value={`${fmtHoras1(kpis.directas)} h`}
+                      subtitle={isBelowMd ? "Tipo DIRECTA" : "Suma tipo DIRECTA (solo horas > 0)"}
+                      topColor="#4F46E5"
+                    />
+                  </div>
+                  <div className={kpiDashboardSingleRowItemClassName}>
+                    <KpiCard
+                      compact
+                      label="Horas indirectas totales"
+                      value={`${fmtHoras1(kpis.indirectas)} h`}
+                      subtitle={isBelowMd ? "Tipo INDIRECTA" : "Suma tipo INDIRECTA (solo horas > 0)"}
+                      topColor="#047857"
+                    />
+                  </div>
+                  <div className={kpiDashboardSingleRowItemClassName}>
+                    <KpiCard
+                      compact
+                      label="Horas de vacaciones"
+                      value={`${fmtHoras1(kpis.vacaciones)} h`}
+                      subtitle={isBelowMd ? "Tipo VACACIONES" : "Suma tipo VACACIONES (solo horas > 0)"}
+                      topColor="#6366F1"
+                    />
+                  </div>
+                  <div className={kpiDashboardSingleRowItemClassName}>
+                    <KpiCard
+                      compact
+                      label="Horas festivos"
+                      value={`${fmtHoras1(kpis.festivos)} h`}
+                      subtitle={isBelowMd ? "Tipo FESTIVO" : "Suma tipo FESTIVO (solo horas > 0)"}
+                      topColor="#6D28D9"
+                    />
+                  </div>
+                  <div className={kpiDashboardSingleRowItemClassName}>
+                    <KpiCard
+                      compact
+                      label="% de cargabilidad"
+                      value={cargabilidadLabel}
+                      subtitle={isBelowMd ? "Directas / (dir.+ind.)" : "Directas ÷ (directas + indirectas); sin vacaciones"}
+                      topColor="#3730A3"
+                      tag={kpis.cargabilidadPct === null ? undefined : "Referencia"}
+                      tagColor={cargColor}
+                    />
+                  </div>
+                  <div className={kpiDashboardSingleRowItemClassName}>
+                    <KpiCard
+                      compact
+                      label="Venta acumulada anual"
+                      value={`${fmtUf2(ventaAcumuladaAnual.uf)} UF`}
+                      subtitle={
+                        isBelowMd
+                          ? `${ventaAcumuladaAnual.year} · directas UF`
+                          : `${ventaAcumuladaAnual.year} · horas directas valorizadas`
+                      }
+                      topColor="#0D9488"
+                      tag={ventaAcumuladaAnual.noValorizados > 0 ? `${ventaAcumuladaAnual.noValorizados} sin tarifa` : undefined}
+                      tagColor={ventaAcumuladaAnual.noValorizados > 0 ? "#B91C1C" : undefined}
+                    />
+                  </div>
                 </div>
 
                 {/* Última semana cargada */}
