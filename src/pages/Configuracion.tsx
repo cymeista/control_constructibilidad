@@ -58,6 +58,7 @@ import {
   MSG_LOGIN_SUPABASE,
 } from "@/security/permissions";
 import PreviewMigracionEquipoEntregablePanel from "@/components/PreviewMigracionEquipoEntregablePanel";
+import MigracionFestivosHistoricosPanel from "@/components/MigracionFestivosHistoricosPanel";
 import SyncLideresEquipoPanel, {
   SyncLideresEquipoSettingsCard,
 } from "@/components/configuracion/SyncLideresEquipoPanel";
@@ -333,7 +334,7 @@ export default function Configuracion() {
   const canSupabaseUpload = canUploadAppDataToSupabase(authSource, role);
   const canSupabaseLoad = canLoadAppDataFromSupabase(authSource, role);
   const data = useAppData();
-  const { aplicarMigracionEquipoEntregable, importAppDataBackup } = data;
+  const { aplicarMigracionEquipoEntregable, aplicarMigracionFestivosHistoricos, importAppDataBackup } = data;
   const pSync = useAppDataPersistence();
   const { settings, update } = useSettings();
   const { toasts, show } = useToast();
@@ -1086,6 +1087,18 @@ export default function Configuracion() {
           </a>
         </SettingsCard>
       </div>
+
+      {role === "ADMIN" ? (
+        <div className="mt-6">
+          <SettingsCard title="Migración histórica de horas festivas" icon={CalendarDays}>
+            <MigracionFestivosHistoricosPanel
+              registro_horas={data.registro_horas}
+              profesionales={data.profesionales}
+              onAplicarMigracion={aplicarMigracionFestivosHistoricos}
+            />
+          </SettingsCard>
+        </div>
+      ) : null}
 
       {role === "ADMIN" ? (
         <div className="mt-6">
