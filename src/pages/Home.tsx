@@ -48,7 +48,6 @@ import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimien
 import { EntregableFechasEditModal } from "@/components/entregables/EntregableFechasEditModal";
 import { CrearEntregableModal } from "@/components/entregables/CrearEntregableModal";
 import type { EntregableProyectoBloqueado } from "@/components/formularios/forms";
-import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/security/AuthContext";
 import { canAccederFormularios, canEditAvance, canEditNotas } from "@/security/permissions";
@@ -335,17 +334,14 @@ function DashboardEntregableSeguimientoCard({
           </CardCampoCompacto>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 border-t border-bdr pt-2">
-        <div className="w-full [&_button]:min-h-[40px] [&_button]:w-full">
-          <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} className="w-full" />
-        </div>
-        {puedeEditarNotas ? (
+      {puedeEditarNotas ? (
+        <div className="mt-2 flex flex-wrap gap-1.5 border-t border-bdr pt-2">
           <Button type="button" variant="outline" className="min-h-[40px] gap-1 px-3 text-[12px]" onClick={onNota}>
             <StickyNote className="h-3.5 w-3.5" />
             {puedeEditarNotas ? (e.nota_seguimiento?.trim() ? "Editar nota" : "Nota") : "Ver nota"}
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -391,11 +387,6 @@ function DashboardProximoInicioCard({
             {fmtHorasCurva(hp)} / {fmtHorasCurva(e.hrs_gastadas)}
           </span>
         </MobileCardRow>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2 border-t border-bdr pt-3">
-        <div className="w-full [&_button]:min-h-[44px] [&_button]:w-full">
-          <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} className="w-full" />
-        </div>
       </div>
     </article>
   );
@@ -1482,7 +1473,6 @@ export default function Home() {
                                           </td>
                                           <td className="max-w-[240px] px-2 py-2 align-top">
                                             <div className="flex flex-wrap items-center gap-2">
-                                              <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} />
                                               {puedeEditarFechas ? (
                                                 <button
                                                   type="button"
@@ -1573,7 +1563,6 @@ export default function Home() {
                     <th className="px-3 py-2">Estado</th>
                     <th className="px-3 py-2">UF prop. / gasto</th>
                     <th className="px-3 py-2">Hrs prop. / gasto</th>
-                    <th className="px-3 py-2">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1600,11 +1589,6 @@ export default function Home() {
                         </td>
                         <td className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
                           {fmtHorasCurva(hp)} <span className="text-t400">/</span> {fmtHorasCurva(e.hrs_gastadas)}
-                        </td>
-                        <td className="max-w-[240px] px-3 py-2 align-top">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <EntregableRedistribuirHorasTrigger ent={e} dense showBadges={false} />
-                          </div>
                         </td>
                       </tr>
                     );
