@@ -209,6 +209,9 @@ function codigoFaseEntregable(e: Entregable): string {
   return f || t || "";
 }
 
+const dashboardTablaAccionBtnClassName =
+  "inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-r6 border border-bdr px-2 text-[10px] font-semibold leading-none text-t600 hover:bg-surface2";
+
 function CardCampoCompacto({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex min-w-0 items-baseline gap-1 leading-snug">
@@ -1409,7 +1412,6 @@ export default function Home() {
                                       <th className="px-2 py-2">UF prop. / UF gasto</th>
                                       <th className="px-2 py-2">Hrs prop. / Hrs gasto</th>
                                       <th className="px-2 py-2">Acciones</th>
-                                      <th className="px-2 py-2">Notas</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -1471,33 +1473,31 @@ export default function Home() {
                                             <span className="text-t400"> / </span>
                                             <span className="text-t600">{fmtHorasCurva(e.hrs_gastadas)}</span>
                                           </td>
-                                          <td className="max-w-[240px] px-2 py-2 align-top">
-                                            <div className="flex flex-wrap items-center gap-2">
+                                          <td className="px-2 py-2 align-middle">
+                                            <div className="flex items-center gap-2">
                                               {puedeEditarFechas ? (
                                                 <button
                                                   type="button"
                                                   onClick={() => setFechasEditEntregableId(e.id)}
-                                                  className="inline-flex items-center gap-1 rounded-r6 border border-bdr px-2 py-1 text-[10px] font-semibold text-t600 hover:bg-surface2"
+                                                  className={dashboardTablaAccionBtnClassName}
                                                   title="Editar fechas del entregable"
                                                 >
-                                                  <Calendar className="h-3.5 w-3.5" />
+                                                  <Calendar className="h-3.5 w-3.5 shrink-0" />
                                                   Fechas
                                                 </button>
                                               ) : null}
+                                              {puedeEditarNotas ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setNotaSegEntregableId(e.id)}
+                                                  className={dashboardTablaAccionBtnClassName}
+                                                  title="Nota de seguimiento"
+                                                >
+                                                  <StickyNote className="h-3.5 w-3.5 shrink-0" />
+                                                  {puedeEditarNotas ? (e.nota_seguimiento?.trim() ? "Editar" : "Nota") : "Ver nota"}
+                                                </button>
+                                              ) : null}
                                             </div>
-                                          </td>
-                                          <td className="px-2 py-2">
-                                            {puedeEditarNotas ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => setNotaSegEntregableId(e.id)}
-                                                className="inline-flex items-center gap-1 rounded-r6 border border-bdr px-2 py-1 text-[10px] font-semibold text-t600 hover:bg-surface2"
-                                                title="Nota de seguimiento"
-                                              >
-                                                <StickyNote className="h-3.5 w-3.5" />
-                                                {puedeEditarNotas ? (e.nota_seguimiento?.trim() ? "Editar" : "Nota") : "Ver nota"}
-                                              </button>
-                                            ) : null}
                                           </td>
                                         </tr>
                                       );
