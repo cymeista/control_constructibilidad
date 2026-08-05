@@ -6,10 +6,13 @@
 import ExcelJS from "exceljs";
 import type {
   ProyeccionHorasEntregableRow,
-  ProyeccionHorasObservacion,
   ProyeccionHorasSnapshot,
 } from "@/proyeccionHoras/proyeccionHorasTypes";
 import { formatDateForDisplay } from "@/lib/localDate";
+import {
+  clasificarObservacionesSnapshot,
+  etiquetaObservacionVista,
+} from "@/proyeccionHoras/proyeccionHorasObservaciones";
 
 const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] as const;
 
@@ -32,6 +35,46 @@ const SOBRECARGA_FILL: ExcelJS.Fill = {
   type: "pattern",
   pattern: "solid",
   fgColor: { argb: "FFFEE2E2" },
+};
+const DARK_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FF1E293B" },
+};
+const KPI_CAP_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FF1E4A6E" },
+};
+const KPI_CARGA_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FF0F766E" },
+};
+const KPI_OK_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FF047857" },
+};
+const KPI_SOBRE_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFB91C1C" },
+};
+const KPI_UTIL_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFB45309" },
+};
+const OK_ROW_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFECFDF5" },
+};
+const BLACK_HEADER_FILL: ExcelJS.Fill = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FF0F172A" },
 };
 const OBS_HEADER_FILL: ExcelJS.Fill = {
   type: "pattern",
@@ -56,27 +99,129 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-function etiquetaObservacion(codigo: ProyeccionHorasObservacion["codigo"]): string {
-  switch (codigo) {
-    case "SIN_FECHAS":
-      return "Sin fechas";
-    case "FECHAS_INVALIDAS":
-      return "Fechas inválidas";
-    case "SALDO_CERO":
-      return "Saldo cero";
-    case "COMPLETADO":
-      return "Completado";
-    case "PROYECTO_NO_ACTIVO":
-      return "Proyecto no activo";
-    case "FUERA_HORIZONTE":
-      return "Fuera de horizonte";
-    case "SIN_DIAS_HABILES":
-      return "Sin días hábiles";
-    case "SALDO_VENCIDO":
-      return "Saldo vencido";
-    default:
-      return codigo;
+type KpisResumenWsp = {
+  capacidadTotal: number;
+  cargaTotal: number;
+  brechaTotal: number;
+  utilizacionTotal: number | null;
+  mesesSobrecarga: number;
+  mesesTotal: number;
+  mesCritico: string;
+  utilMesCritico: number | null;
+  capacidadPromedio: number;
+  brechaAcumuladaCierre: number;
+};
+
+function calcularKpisResumenWsp(snapshot: ProyeccionHorasSnapshot): KpisResumenWsp {
+  const capacidadTotal = snapshot.comparacion_curva.reduce((s, m) => s + m.horas_disponibles, 0);
+  const cargaTotal = snapshot.total_general.horas_en_horizonte;
+  const brechaTotal = round1(capacidadTotal - cargaTotal);
+  const utilizacionTotal =
+    capacidadTotal > 1e-9 ? round1((cargaTotal / capacidadTotal) * 100) : null;
+  const mesesSobrecarga = snapshot.comparacion_curva.filter(
+    (c) => c.horas_proyectadas > c.horas_disponibles + 1e-9,
+  ).length;
+  let mesCritico = "—";
+  let utilMesCritico: number | null = null;
+  let peorUtil = -1;
+  for (const c of snapshot.comparacion_curva) {
+    const u =
+      c.horas_disponibles > 1e-9
+        ? c.horas_proyectadas / c.horas_disponibles
+        : c.horas_proyectadas > 0
+          ? Infinity
+          : 0;
+    if (u > peorUtil) {
+      peorUtil = u;
+      mesCritico = labelMesCorto(c.mes);
+      utilMesCritico =
+        c.utilizacion_pct != null
+          ? round1(c.utilizacion_pct)
+          : Number.isFinite(u)
+            ? round1(u * 100)
+            : null;
+    }
   }
+  const n = snapshot.comparacion_curva.length;
+  const capacidadPromedio = n > 0 ? round1(capacidadTotal / n) : 0;
+  const last = snapshot.comparacion_curva[n - 1];
+  const brechaAcumuladaCierre = last ? round1(last.brecha_acumulada) : 0;
+  return {
+    capacidadTotal: round1(capacidadTotal),
+    cargaTotal: round1(cargaTotal),
+    brechaTotal,
+    utilizacionTotal,
+    mesesSobrecarga,
+    mesesTotal: n,
+    mesCritico,
+    utilMesCritico,
+    capacidadPromedio,
+    brechaAcumuladaCierre,
+  };
+}
+
+function frasesResumenEjecutivo(k: KpisResumenWsp): string[] {
+  const lines: string[] = [];
+  const absBrecha = Math.abs(k.brechaTotal);
+  if (k.brechaTotal < -1e-9) {
+    lines.push(
+      `La cartera demanda ${k.cargaTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h frente a una capacidad de ${k.capacidadTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h, generando una sobrecarga neta de ${absBrecha.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h.`,
+    );
+  } else {
+    lines.push(
+      `La cartera demanda ${k.cargaTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h frente a una capacidad de ${k.capacidadTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h, con holgura neta de ${absBrecha.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h.`,
+    );
+  }
+  if (k.mesesTotal > 0) {
+    lines.push(
+      `La capacidad mensual promedio es de ${k.capacidadPromedio.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h.`,
+    );
+    lines.push(
+      `La carga supera la capacidad en ${k.mesesSobrecarga} de ${k.mesesTotal} meses analizados.`,
+    );
+  }
+  if (k.mesCritico !== "—" && k.utilMesCritico != null) {
+    lines.push(
+      `El mes más crítico es ${k.mesCritico}, con una utilización de ${k.utilMesCritico.toLocaleString("es-CL", { maximumFractionDigits: 1 })}%.`,
+    );
+  }
+  if (k.brechaAcumuladaCierre < -1e-9) {
+    lines.push(
+      `El acumulado proyectado supera la capacidad disponible al cierre del horizonte (brecha acum. ${k.brechaAcumuladaCierre.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h).`,
+    );
+  } else {
+    lines.push(
+      `El acumulado proyectado no supera la capacidad disponible al cierre del horizonte (brecha acum. ${k.brechaAcumuladaCierre.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h).`,
+    );
+  }
+  return lines.slice(0, 5);
+}
+
+function paintKpiBlock(
+  ws: ExcelJS.Worksheet,
+  startCol: number,
+  label: string,
+  value: string,
+  fill: ExcelJS.Fill,
+): void {
+  const r1 = 5;
+  const r2 = 7;
+  ws.mergeCells(r1, startCol, r1, startCol + 1);
+  ws.mergeCells(r2 - 1, startCol, r2, startCol + 1);
+  const labelCell = ws.getCell(r1, startCol);
+  labelCell.value = label;
+  labelCell.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
+  labelCell.fill = fill;
+  labelCell.alignment = { horizontal: "center", vertical: "middle" };
+  const valueCell = ws.getCell(r2 - 1, startCol);
+  valueCell.value = value;
+  valueCell.font = { bold: true, size: 16, color: { argb: "FFFFFFFF" } };
+  valueCell.fill = fill;
+  valueCell.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getCell(r1, startCol + 1).fill = fill;
+  ws.getCell(r2 - 1, startCol + 1).fill = fill;
+  ws.getCell(r2, startCol).fill = fill;
+  ws.getCell(r2, startCol + 1).fill = fill;
 }
 
 function styleHeaderRow(row: ExcelJS.Row): void {
@@ -231,19 +376,45 @@ function buildHojaDetalle(wb: ExcelJS.Workbook, snapshot: ProyeccionHorasSnapsho
     cell.alignment = { horizontal: "right" };
   }
 
-  // Observaciones al final
+  // Observaciones al final (críticas primero; informativas en bloque aparte)
   ws.addRow([]);
-  const obsTitle = ws.addRow(["OBSERVACIONES"]);
+  const obsClasif = clasificarObservacionesSnapshot(snapshot);
+  const obsTitle = ws.addRow(["OBSERVACIONES CRÍTICAS"]);
   obsTitle.font = { bold: true, size: 11 };
   const obsHeader = ws.addRow(["Tipo", "Proyecto", "Entregable", "Motivo"]);
   styleHeaderRow(obsHeader);
   obsHeader.fill = OBS_HEADER_FILL;
 
-  if (snapshot.observaciones.length === 0) {
-    ws.addRow(["—", "—", "—", "Sin observaciones de exclusión en el snapshot."]);
+  if (obsClasif.criticas.length === 0) {
+    ws.addRow(["—", "—", "—", "Sin observaciones críticas para la proyección."]);
   } else {
-    for (const o of snapshot.observaciones) {
-      ws.addRow([etiquetaObservacion(o.codigo), o.proyecto_codigo, o.entregable_nombre, o.detalle]);
+    for (const o of obsClasif.criticas) {
+      ws.addRow([
+        etiquetaObservacionVista(o.codigo),
+        o.proyecto_codigo,
+        o.entregable_nombre,
+        o.detalle,
+      ]);
+    }
+  }
+
+  ws.addRow([]);
+  const infoTitle = ws.addRow([
+    `OBSERVACIONES INFORMATIVAS (ocultas en UI por defecto) · completados: ${obsClasif.nCompletados}`,
+  ]);
+  infoTitle.font = { bold: true, size: 10, color: { argb: "FF64748B" } };
+  if (obsClasif.noCriticas.length === 0) {
+    ws.addRow(["—", "—", "—", "Sin observaciones informativas."]);
+  } else {
+    const infoHdr = ws.addRow(["Tipo", "Proyecto", "Entregable", "Motivo"]);
+    styleHeaderRow(infoHdr);
+    for (const o of obsClasif.noCriticas) {
+      ws.addRow([
+        etiquetaObservacionVista(o.codigo),
+        o.proyecto_codigo,
+        o.entregable_nombre,
+        o.detalle,
+      ]);
     }
   }
 
@@ -260,112 +431,169 @@ function buildHojaDetalle(wb: ExcelJS.Workbook, snapshot: ProyeccionHorasSnapsho
 
 function buildHojaResumenWsp(wb: ExcelJS.Workbook, snapshot: ProyeccionHorasSnapshot): void {
   const ws = wb.addWorksheet("Resumen WSP", {
-    views: [{ state: "frozen", ySplit: 12 }],
+    views: [{ state: "frozen", ySplit: 4 }],
+  });
+  const kpis = calcularKpisResumenWsp(snapshot);
+  const mesIni = labelMesCorto(snapshot.mes_inicio_horizonte);
+  const mesFin = labelMesCorto(snapshot.mes_fin_horizonte);
+
+  ws.mergeCells("A1:L2");
+  const title = ws.getCell("A1");
+  title.value = "CAPACIDAD PROFESIONAL VS. CARGA DE PROYECTOS";
+  title.font = { bold: true, size: 16, color: { argb: "FFFFFFFF" } };
+  title.fill = DARK_FILL;
+  title.alignment = { horizontal: "center", vertical: "middle" };
+  for (let c = 1; c <= 12; c++) {
+    ws.getCell(1, c).fill = DARK_FILL;
+    ws.getCell(2, c).fill = DARK_FILL;
+  }
+  ws.getRow(1).height = 22;
+  ws.getRow(2).height = 18;
+
+  ws.mergeCells("A3:L3");
+  const sub = ws.getCell("A3");
+  sub.value = `Horizonte ${mesIni}–${mesFin} · Fecha de consulta ${fmtFechaDdMmYyyy(snapshot.fecha_consulta)} · Incluye L2: ${snapshot.incluir_l2 ? "Sí" : "No"}`;
+  sub.font = { size: 10, color: { argb: "FFE2E8F0" } };
+  sub.fill = DARK_FILL;
+  sub.alignment = { horizontal: "center", vertical: "middle" };
+  for (let c = 1; c <= 12; c++) ws.getCell(3, c).fill = DARK_FILL;
+  ws.getRow(3).height = 18;
+  ws.getRow(4).height = 8;
+
+  const sobrecarga = kpis.brechaTotal < -1e-9;
+  paintKpiBlock(
+    ws,
+    1,
+    "CAPACIDAD TOTAL",
+    `${kpis.capacidadTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h`,
+    KPI_CAP_FILL,
+  );
+  paintKpiBlock(
+    ws,
+    4,
+    "CARGA TOTAL",
+    `${kpis.cargaTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h`,
+    KPI_CARGA_FILL,
+  );
+  paintKpiBlock(
+    ws,
+    7,
+    sobrecarga ? "SOBRECARGA" : "BRECHA / HOLGURA",
+    `${sobrecarga ? "+" : ""}${Math.abs(kpis.brechaTotal).toLocaleString("es-CL", { maximumFractionDigits: 1 })} h`,
+    sobrecarga ? KPI_SOBRE_FILL : KPI_OK_FILL,
+  );
+  paintKpiBlock(
+    ws,
+    10,
+    "UTILIZACIÓN",
+    kpis.utilizacionTotal == null
+      ? "—"
+      : `${kpis.utilizacionTotal.toLocaleString("es-CL", { maximumFractionDigits: 1 })}%`,
+    KPI_UTIL_FILL,
+  );
+  ws.getRow(5).height = 16;
+  ws.getRow(6).height = 14;
+  ws.getRow(7).height = 22;
+  ws.getRow(8).height = 10;
+
+  ws.mergeCells("A9:L9");
+  const rej = ws.getCell("A9");
+  rej.value = "RESUMEN EJECUTIVO";
+  rej.font = { bold: true, size: 11, color: { argb: "FFFFFFFF" } };
+  rej.fill = BLACK_HEADER_FILL;
+  for (let c = 1; c <= 12; c++) ws.getCell(9, c).fill = BLACK_HEADER_FILL;
+
+  const frases = frasesResumenEjecutivo(kpis);
+  let rowExec = 10;
+  for (const f of frases) {
+    ws.mergeCells(rowExec, 1, rowExec, 12);
+    const cell = ws.getCell(rowExec, 1);
+    cell.value = `• ${f}`;
+    cell.font = { size: 10 };
+    cell.alignment = { wrapText: true, vertical: "middle" };
+    ws.getRow(rowExec).height = 18;
+    rowExec += 1;
+  }
+
+  rowExec += 1;
+  ws.mergeCells(rowExec, 1, rowExec, 12);
+  ws.getCell(rowExec, 1).value =
+    "Nota técnica: ExcelJS no genera gráficos nativos embebidos; use las tablas mensuales/acumuladas para crear gráficos en Excel.";
+  ws.getCell(rowExec, 1).font = { size: 8, italic: true, color: { argb: "FF64748B" } };
+  rowExec += 2;
+
+  const detTitleRow = rowExec;
+  ws.mergeCells(detTitleRow, 1, detTitleRow, 6);
+  ws.getCell(detTitleRow, 1).value = "DETALLE MENSUAL";
+  ws.getCell(detTitleRow, 1).font = { bold: true, size: 11, color: { argb: "FFFFFFFF" } };
+  for (let c = 1; c <= 6; c++) ws.getCell(detTitleRow, c).fill = BLACK_HEADER_FILL;
+
+  ws.mergeCells(detTitleRow, 8, detTitleRow, 11);
+  ws.getCell(detTitleRow, 8).value = "EVOLUCIÓN ACUMULADA";
+  ws.getCell(detTitleRow, 8).font = { bold: true, size: 11, color: { argb: "FFFFFFFF" } };
+  for (let c = 8; c <= 11; c++) ws.getCell(detTitleRow, c).fill = BLACK_HEADER_FILL;
+
+  const hdrRow = detTitleRow + 1;
+  ["Mes", "Capacidad", "Proyectos", "Brecha", "Utilización", "Estado"].forEach((h, i) => {
+    const cell = ws.getCell(hdrRow, i + 1);
+    cell.value = h;
+    cell.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
+    cell.fill = BLACK_HEADER_FILL;
+    cell.alignment = { horizontal: "center" };
+  });
+  ["Mes", "Capacidad acumulada", "Proyectos acumulados", "Brecha acumulada"].forEach((h, i) => {
+    const cell = ws.getCell(hdrRow, 8 + i);
+    cell.value = h;
+    cell.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
+    cell.fill = BLACK_HEADER_FILL;
+    cell.alignment = { horizontal: "center" };
   });
 
-  const horasDisponiblesTotal = snapshot.comparacion_curva.reduce((s, m) => s + m.horas_disponibles, 0);
-  const horasProyectadasTotal = snapshot.total_general.horas_en_horizonte;
-  const brechaTotal = round1(horasDisponiblesTotal - horasProyectadasTotal);
-  const utilizacionTotal =
-    horasDisponiblesTotal > 1e-9
-      ? round1((horasProyectadasTotal / horasDisponiblesTotal) * 100)
-      : null;
-
-  const mesesSobrecarga = snapshot.comparacion_curva.filter(
-    (c) => c.horas_proyectadas > c.horas_disponibles + 1e-9,
-  );
-  let mesCritico = "—";
-  let peorUtil = -1;
+  let dataRow = hdrRow + 1;
   for (const c of snapshot.comparacion_curva) {
-    const u =
-      c.horas_disponibles > 1e-9
-        ? c.horas_proyectadas / c.horas_disponibles
-        : c.horas_proyectadas > 0
-          ? Infinity
-          : 0;
-    if (u > peorUtil) {
-      peorUtil = u;
-      mesCritico = labelMesCorto(c.mes);
-    }
-  }
+    const sobrec = c.horas_proyectadas > c.horas_disponibles + 1e-9;
+    const estado = sobrec ? "SOBRECARGA" : "CAPACIDAD DISPONIBLE";
+    const fill = sobrec ? SOBRECARGA_FILL : OK_ROW_FILL;
 
-  const meta: [string, string | number][] = [
-    ["Horizonte (meses)", snapshot.horizonte_meses],
-    ["Fecha de consulta", fmtFechaDdMmYyyy(snapshot.fecha_consulta)],
-    ["Incluir L2", snapshot.incluir_l2 ? "Sí" : "No"],
-    ["Mes inicio horizonte", snapshot.mes_inicio_horizonte],
-    ["Mes fin horizonte", snapshot.mes_fin_horizonte],
-    ["Horas proyectadas totales", round1(horasProyectadasTotal)],
-    ["Horas disponibles totales", round1(horasDisponiblesTotal)],
-    ["Brecha total", brechaTotal],
-    ["Utilización total %", utilizacionTotal ?? "—"],
-    ["Mes más crítico", mesCritico],
-    ["Meses con sobrecarga", mesesSobrecarga.length],
-  ];
-
-  for (const [k, v] of meta) {
-    const r = ws.addRow([k, v]);
-    r.getCell(1).font = { bold: true, size: 10 };
-    r.getCell(2).font = { size: 10 };
-    if (typeof v === "number" && (k.includes("Horas") || k.includes("Brecha"))) {
-      r.getCell(2).numFmt = "0.0";
-    }
-  }
-
-  ws.addRow([]);
-
-  const headers = [
-    "Mes",
-    "Horas disponibles",
-    "Horas proyectadas",
-    "Brecha",
-    "Utilización %",
-    "Disponible acumulado",
-    "Proyectado acumulado",
-    "Brecha acumulada",
-    "Estado",
-  ];
-  const headerRow = ws.addRow(headers);
-  styleHeaderRow(headerRow);
-  const tableStartRow = headerRow.number;
-
-  for (const c of snapshot.comparacion_curva) {
-    const sobrecarga = c.horas_proyectadas > c.horas_disponibles + 1e-9;
-    const row = ws.addRow([
-      labelMesCorto(c.mes),
-      round1(c.horas_disponibles),
-      round1(c.horas_proyectadas),
-      round1(c.diferencia),
-      c.utilizacion_pct == null ? "—" : round1(c.utilizacion_pct),
-      round1(c.acumulado_disponible),
-      round1(c.acumulado_proyectado),
-      round1(c.brecha_acumulada),
-      sobrecarga ? "SOBRECARGA" : "OK",
-    ]);
-    row.font = { size: 10 };
-    for (const col of [2, 3, 4, 6, 7, 8]) {
-      row.getCell(col).numFmt = "0.0";
-      row.getCell(col).alignment = { horizontal: "right" };
-    }
-    if (typeof row.getCell(5).value === "number") {
-      row.getCell(5).numFmt = "0.0";
-      row.getCell(5).alignment = { horizontal: "right" };
-    }
-    if (sobrecarga) {
-      row.fill = SOBRECARGA_FILL;
-      row.getCell(9).font = { bold: true, size: 10, color: { argb: "FFB91C1C" } };
+    ws.getCell(dataRow, 1).value = labelMesCorto(c.mes);
+    ws.getCell(dataRow, 2).value = round1(c.horas_disponibles);
+    ws.getCell(dataRow, 2).numFmt = '#,##0.0 "h"';
+    ws.getCell(dataRow, 3).value = round1(c.horas_proyectadas);
+    ws.getCell(dataRow, 3).numFmt = '#,##0.0 "h"';
+    ws.getCell(dataRow, 4).value = round1(c.diferencia);
+    ws.getCell(dataRow, 4).numFmt = '#,##0.0 "h"';
+    if (c.utilizacion_pct == null) {
+      ws.getCell(dataRow, 5).value = "—";
     } else {
-      row.getCell(9).font = { bold: true, size: 10, color: { argb: "FF047857" } };
+      ws.getCell(dataRow, 5).value = round1(c.utilizacion_pct) / 100;
+      ws.getCell(dataRow, 5).numFmt = "0.0%";
     }
+    ws.getCell(dataRow, 6).value = estado;
+    for (let col = 1; col <= 6; col++) {
+      ws.getCell(dataRow, col).fill = fill;
+      ws.getCell(dataRow, col).font = { size: 9 };
+    }
+    ws.getCell(dataRow, 6).font = {
+      bold: true,
+      size: 9,
+      color: { argb: sobrec ? "FFB91C1C" : "FF047857" },
+    };
+
+    ws.getCell(dataRow, 8).value = labelMesCorto(c.mes);
+    ws.getCell(dataRow, 9).value = round1(c.acumulado_disponible);
+    ws.getCell(dataRow, 9).numFmt = '#,##0.0 "h"';
+    ws.getCell(dataRow, 10).value = round1(c.acumulado_proyectado);
+    ws.getCell(dataRow, 10).numFmt = '#,##0.0 "h"';
+    ws.getCell(dataRow, 11).value = round1(c.brecha_acumulada);
+    ws.getCell(dataRow, 11).numFmt = '#,##0.0 "h"';
+    for (let col = 8; col <= 11; col++) {
+      ws.getCell(dataRow, col).fill = fill;
+      ws.getCell(dataRow, col).font = { size: 9 };
+    }
+    dataRow += 1;
   }
 
-  const tableEndRow = tableStartRow + snapshot.comparacion_curva.length;
-  ws.autoFilter = {
-    from: { row: tableStartRow, column: 1 },
-    to: { row: tableEndRow, column: headers.length },
-  };
-
-  [22, 16, 16, 12, 12, 18, 18, 16, 12].forEach((w, i) => {
+  [12, 12, 12, 12, 12, 22, 3, 12, 18, 18, 16, 12].forEach((w, i) => {
     ws.getColumn(i + 1).width = w;
   });
 }
@@ -497,18 +725,29 @@ export async function verificarEstructuraExcelProyeccion(
 
   const wsWsp = wb.getWorksheet("Resumen WSP");
   let nFilasComparacion = 0;
+  const tituloOk =
+    String(wsWsp?.getCell("A1").value ?? "").includes("CAPACIDAD PROFESIONAL VS. CARGA");
+  if (!tituloOk) detalle.push("Resumen WSP sin título ejecutivo esperado");
   if (wsWsp) {
-    wsWsp.eachRow((row, rowNumber) => {
-      if (rowNumber > 12 && row.getCell(1).value && String(row.getCell(1).value) !== "Mes") {
-        const v = String(row.getCell(9).value ?? "");
-        if (v === "OK" || v === "SOBRECARGA") nFilasComparacion += 1;
-      }
+    wsWsp.eachRow((row) => {
+      const estado = String(row.getCell(6).value ?? "");
+      if (estado === "SOBRECARGA" || estado === "CAPACIDAD DISPONIBLE") nFilasComparacion += 1;
     });
   }
   if (nFilasComparacion !== snapshot.comparacion_curva.length) {
     detalle.push(
       `Filas WSP=${nFilasComparacion} vs comparacion_curva=${snapshot.comparacion_curva.length}`,
     );
+  }
+
+  const kpis = calcularKpisResumenWsp(snapshot);
+  const cargaCell = String(wsWsp?.getCell(6, 4).value ?? "");
+  if (!cargaCell.includes(String(Math.floor(kpis.cargaTotal))) && kpis.cargaTotal > 0) {
+    // KPI CARGA TOTAL está en col 4–5, fila 6 (valor); validación laxa por locale
+    const anyKpi =
+      String(wsWsp?.getCell(5, 1).value ?? "").includes("CAPACIDAD") ||
+      String(wsWsp?.getCell(5, 4).value ?? "").includes("CARGA");
+    if (!anyKpi) detalle.push("Resumen WSP sin bloques KPI esperados");
   }
 
   return {

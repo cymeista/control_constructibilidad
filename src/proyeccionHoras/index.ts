@@ -21,3 +21,8 @@ export {
   nombreArchivoProyeccionHoras,
   verificarEstructuraExcelProyeccion,
 } from "@/proyeccionHoras/proyeccionHorasExcelExport";
+export {
+  clasificarObservacionesSnapshot,
+  esObservacionCritica,
+  etiquetaObservacionVista,
+} from "@/proyeccionHoras/proyeccionHorasObservaciones";

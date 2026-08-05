@@ -27,9 +27,12 @@ import {
   buildProyeccionHorasSnapshot,
   type ProyeccionHorasEntregableRow,
   type ProyeccionHorasHorizonteMeses,
-  type ProyeccionHorasObservacion,
 } from "@/proyeccionHoras";
 import { downloadProyeccionHorasExcel } from "@/proyeccionHoras/proyeccionHorasExcelExport";
+import {
+  clasificarObservacionesSnapshot,
+  etiquetaObservacionVista,
+} from "@/proyeccionHoras/proyeccionHorasObservaciones";
 
 const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] as const;
 
@@ -52,29 +55,6 @@ function labelMesCorto(mesIso: string): string {
 
 function fmtFechaCorta(iso: string): string {
   return formatDateForDisplay(iso, "-");
-}
-
-function etiquetaObservacion(codigo: ProyeccionHorasObservacion["codigo"]): string {
-  switch (codigo) {
-    case "SIN_FECHAS":
-      return "Sin fechas";
-    case "FECHAS_INVALIDAS":
-      return "Fechas inválidas";
-    case "SALDO_CERO":
-      return "Saldo cero";
-    case "COMPLETADO":
-      return "Completado";
-    case "PROYECTO_NO_ACTIVO":
-      return "Proyecto no activo";
-    case "FUERA_HORIZONTE":
-      return "Fuera de horizonte";
-    case "SIN_DIAS_HABILES":
-      return "Sin días hábiles";
-    case "SALDO_VENCIDO":
-      return "Saldo vencido";
-    default:
-      return codigo;
-  }
 }
 
 type GrupoProyecto = {
@@ -101,6 +81,7 @@ export default function GanttHoras() {
 
   const [horizonteMeses, setHorizonteMeses] = useState<ProyeccionHorasHorizonteMeses>(8);
   const [incluirL2, setIncluirL2] = useState(false);
+  const [mostrarObsNoCriticas, setMostrarObsNoCriticas] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [errorExport, setErrorExport] = useState<string | null>(null);
 
@@ -189,9 +170,13 @@ export default function GanttHoras() {
       ? Math.round((horasProyectadasTotal / horasDisponiblesTotal) * 10000) / 100
       : null;
 
-  const nObservaciones =
-    snapshot.observaciones.length +
-    snapshot.comparacion_curva.filter((c) => Boolean(c.observacion)).length;
+  const obsClasificadas = useMemo(() => clasificarObservacionesSnapshot(snapshot), [snapshot]);
+  const observacionesVisibles = useMemo(() => {
+    if (mostrarObsNoCriticas) {
+      return [...obsClasificadas.criticas, ...obsClasificadas.noCriticas];
+    }
+    return obsClasificadas.criticas;
+  }, [obsClasificadas, mostrarObsNoCriticas]);
 
   const onExportarExcel = useCallback(async () => {
     setErrorExport(null);
@@ -326,10 +311,14 @@ export default function GanttHoras() {
         <div className={kpiDashboardSingleRowItemClassName}>
           <KpiCard
             compact
-            label="Observaciones"
-            value={String(nObservaciones)}
-            subtitle="Datos / exclusiones"
-            topColor={nObservaciones > 0 ? "#B45309" : "#64748B"}
+            label="Observaciones críticas"
+            value={String(obsClasificadas.criticas.length)}
+            subtitle={
+              obsClasificadas.nCompletados > 0
+                ? `${obsClasificadas.nCompletados} completados ocultos`
+                : "Accionables"
+            }
+            topColor={obsClasificadas.criticas.length > 0 ? "#B45309" : "#64748B"}
           />
         </div>
       </div>
@@ -467,12 +456,48 @@ export default function GanttHoras() {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-[13px] font-semibold text-t900">Observaciones</h3>
-        {snapshot.observaciones.length === 0 ? (
-          <p className="rounded-r8 border border-bdr bg-surface2/50 px-3 py-2 text-[11px] text-t600">
-            Sin observaciones de exclusión. Conteos: completados {snapshot.conteos.excluidos_completados},
-            saldo cero {snapshot.conteos.excluidos_saldo_cero}, no activos{" "}
-            {snapshot.conteos.excluidos_proyecto_no_activo}.
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-[13px] font-semibold text-t900">Observaciones</h3>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="gantt-horas-obs-no-criticas"
+              checked={mostrarObsNoCriticas}
+              onCheckedChange={(v) => setMostrarObsNoCriticas(v === true)}
+            />
+            <Label
+              htmlFor="gantt-horas-obs-no-criticas"
+              className="cursor-pointer text-[11px] font-medium text-t700"
+            >
+              Mostrar observaciones no críticas
+            </Label>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-r8 border border-bdr bg-surface2/40 px-3 py-2 text-[11px] text-t700">
+          <span>
+            Observaciones críticas:{" "}
+            <span className="font-semibold tabular-nums">{obsClasificadas.criticas.length}</span>
+          </span>
+          <span>
+            Completados ocultos:{" "}
+            <span className="font-semibold tabular-nums">{obsClasificadas.nCompletados}</span>
+          </span>
+          {mostrarObsNoCriticas ? (
+            <span>
+              No críticas visibles:{" "}
+              <span className="font-semibold tabular-nums">{obsClasificadas.noCriticas.length}</span>
+            </span>
+          ) : null}
+        </div>
+
+        {observacionesVisibles.length === 0 ? (
+          <p className="rounded-r8 border border-bdr bg-white px-3 py-2 text-[11px] text-t600">
+            {obsClasificadas.criticas.length === 0
+              ? "Sin observaciones críticas para la proyección."
+              : "Sin filas para mostrar."}
+            {obsClasificadas.nCompletados > 0 && !mostrarObsNoCriticas
+              ? ` ${obsClasificadas.nCompletados} completado(s) oculto(s); active «Mostrar observaciones no críticas» para verlos.`
+              : null}
           </p>
         ) : (
           <div className="max-h-64 overflow-y-auto rounded-r10 border border-amber-200/80 bg-amber-50/40">
@@ -486,10 +511,16 @@ export default function GanttHoras() {
                 </tr>
               </thead>
               <tbody>
-                {snapshot.observaciones.map((o) => (
-                  <tr key={`${o.codigo}-${o.entregable_id}`} className="border-b border-amber-100/80">
+                {observacionesVisibles.map((o, idx) => (
+                  <tr
+                    key={`${o.codigo}-${o.entregable_id ?? o.entregable_nombre}-${idx}`}
+                    className="border-b border-amber-100/80"
+                  >
                     <td className="p-2 whitespace-nowrap font-semibold text-amber-950">
-                      {etiquetaObservacion(o.codigo)}
+                      {etiquetaObservacionVista(o.codigo)}
+                      {!o.critica ? (
+                        <span className="ml-1 text-[9px] font-normal text-t500">(info)</span>
+                      ) : null}
                     </td>
                     <td className="p-2 font-mono text-t700">{o.proyecto_codigo}</td>
                     <td className="p-2 text-t800">{o.entregable_nombre}</td>
