@@ -8,6 +8,7 @@ import {
   FolderKanban,
   UserCircle,
   CalendarDays,
+  CalendarRange,
   FileText,
   Settings,
   Bell,
@@ -35,6 +36,7 @@ export const primaryNavItems: NavItemConfig[] = [
   { to: "/profesionales", label: "Profesionales", shortLabel: "Equipo", icon: UserCircle },
   { to: "/gantt", label: "Gantt Proyectos", shortLabel: "G. Proy.", icon: CalendarDays },
   { to: "/gantt-profesionales", label: "Gantt Profesionales", shortLabel: "G. Prof.", icon: CalendarDays },
+  { to: "/gantt-horas", label: "Gantt Horas", shortLabel: "G. Horas", icon: CalendarRange },
   { to: "/evaluacion", label: "Evaluación", shortLabel: "Eval.", icon: ClipboardCheck },
 ];
 

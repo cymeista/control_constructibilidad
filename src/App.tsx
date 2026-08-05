@@ -9,6 +9,7 @@ import AuditoriaProyectos from './pages/AuditoriaProyectos'
 import Profesionales from './pages/Profesionales'
 import Gantt from './pages/Gantt'
 import GanttProfesionales from './pages/GanttProfesionales'
+import GanttHoras from './pages/GanttHoras'
 import Evaluacion from './pages/Evaluacion'
 import CapacidadEquipo from './pages/CapacidadEquipo'
 import ReporteEjecutivo from './pages/ReporteEjecutivo'
@@ -31,6 +32,14 @@ export default function App() {
           element={
             <RequireRole route="/gantt-profesionales">
               <GanttProfesionales />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="gantt-horas"
+          element={
+            <RequireRole route="/gantt-horas">
+              <GanttHoras />
             </RequireRole>
           }
         />

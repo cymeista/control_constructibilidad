@@ -9,6 +9,7 @@ export type AppRoute =
   | "/profesionales"
   | "/gantt"
   | "/gantt-profesionales"
+  | "/gantt-horas"
   | "/evaluacion"
   | "/horas"
   | "/capacidad-equipo"
@@ -31,6 +32,7 @@ function guestCanViewRoute(route: AppRoute): boolean {
     route === "/profesionales" ||
     route === "/gantt" ||
     route === "/gantt-profesionales" ||
+    route === "/gantt-horas" ||
     route === "/evaluacion"
   );
 }
@@ -52,6 +54,7 @@ export function canViewRouteForSession(role: AppRole | null, route: AppRoute): b
       route === "/profesionales" ||
       route === "/gantt" ||
       route === "/gantt-profesionales" ||
+      route === "/gantt-horas" ||
       route === "/capacidad-equipo" ||
       route === "/reportes" ||
       route === "/pipeline" ||
