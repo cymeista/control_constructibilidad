@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
+import EntregableCancelarModal from "@/components/EntregableCancelarModal";
 import EquipoEntregableSection from "@/components/EquipoEntregableSection";
 import EntregableFechasSection from "@/components/proyectos/EntregableFechasSection";
 import { useAppData, type Profesional, type PmInterno } from "@/context/AppDataContext";
@@ -22,6 +23,7 @@ import {
   canGestionarEquipoEntregable,
   canEditEstadoProyecto,
   canAccederFormularios,
+  canCancelarEntregable,
 } from "@/security/permissions";
 import {
   agregarTotalesKpiSinL2,
@@ -38,6 +40,11 @@ import {
 } from "@/proyectos/proyectosVistaReadModel";
 import type { Proyecto } from "@/context/AppDataContext";
 import { historialRedistribucionPorEntregable } from "@/entregables/redistribucionHorasEntregable";
+import {
+  buildPatchReactivarEntregable,
+  calcularSaldoAnuladoHoras,
+  entregableEstaCancelado,
+} from "@/entregables/entregableCancelacion";
 import {
   claseBadgeAlertaActiva,
   entregableTieneAlertasActivas,
@@ -192,6 +199,7 @@ export default function Proyectos() {
   const puedeGestionarEquipo = role ? canGestionarEquipoEntregable(role) : false;
   const puedeEditarEntregableFechas = role ? canAccederFormularios(role) : false;
   const puedeEditarEstadoProyecto = role ? canEditEstadoProyecto(role) : false;
+  const puedeCancelarEntregable = role ? canCancelarEntregable(role) : false;
   const {
     clientes,
     proyectos,
@@ -218,6 +226,7 @@ export default function Proyectos() {
   const [openProyectos, setOpenProyectos] = useState<Set<string>>(new Set());
   const [drawerRow, setDrawerRow] = useState<EntregableVistaAnalisis | null>(null);
   const [notaEnt, setNotaEnt] = useState<EntregableVistaAnalisis | null>(null);
+  const [cancelarEnt, setCancelarEnt] = useState<EntregableVistaAnalisis | null>(null);
 
   const pmMap = useMemo(() => new Map(pm_internos.map((p: PmInterno) => [p.id, p])), [pm_internos]);
   const profMap = useMemo(() => new Map(profesionales.map((p: Profesional) => [p.id, p])), [profesionales]);
@@ -390,6 +399,25 @@ export default function Proyectos() {
       });
     },
     [updateEntregable, puedeEditarNotas],
+  );
+
+  const confirmarCancelarEntregable = useCallback(
+    (patch: { cancelado: true; fecha_cancelacion: string; motivo_cancelacion: string }) => {
+      if (!puedeCancelarEntregable || !cancelarEnt) return;
+      updateEntregable(cancelarEnt.entregable.id, patch);
+    },
+    [puedeCancelarEntregable, cancelarEnt, updateEntregable],
+  );
+
+  const reactivarEntregable = useCallback(
+    (entregableId: string) => {
+      if (!puedeCancelarEntregable) return;
+      if (!window.confirm("¿Reactivar este entregable? Volverá a proyectarse si tiene saldo y fechas válidas.")) {
+        return;
+      }
+      updateEntregable(entregableId, buildPatchReactivarEntregable());
+    },
+    [puedeCancelarEntregable, updateEntregable],
   );
 
   const goGestionHorasEntregable = useCallback(
@@ -761,11 +789,16 @@ export default function Proyectos() {
                                             >
                                               <p className="text-[13px] font-semibold text-[#1e4a6e]">{e.nombre}</p>
                                               {codigo ? <p className="mt-0.5 text-[10px] text-t500">{codigo}</p> : null}
-                                              <div className="mt-1.5">
+                                              <div className="mt-1.5 flex flex-wrap items-center gap-1">
                                                 <StatusPill
                                                   variant={entregableEstadoToStatusVariant(String(e.estado))}
                                                   labelOverride={String(e.estado)}
                                                 />
+                                                {entregableEstaCancelado(e) ? (
+                                                  <span className="rounded-r4 bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                                                    Cancelado
+                                                  </span>
+                                                ) : null}
                                               </div>
                                             </button>
                                             <div className="border-t border-bdr/80 px-3 pb-3">
@@ -791,6 +824,15 @@ export default function Proyectos() {
                                                     {fmtH(row.saldoHoras)}
                                                   </span>
                                                 </MobileCardRow>
+                                                {entregableEstaCancelado(e) ? (
+                                                  <MobileCardRow label="Saldo anulado">
+                                                    <span className="font-mono font-semibold text-slate-800">
+                                                      {fmtH(
+                                                        calcularSaldoAnuladoHoras(row.horasPresupuesto, row.horasGastadas),
+                                                      )}
+                                                    </span>
+                                                  </MobileCardRow>
+                                                ) : null}
                                                 <MobileCardRow label="Consumo %">
                                                   <span className="font-mono font-semibold" style={{ color: consColor }}>
                                                     {fmtPct(cons)}
@@ -920,6 +962,11 @@ export default function Proyectos() {
                                                 {e.fase_codigo ? (
                                                   <span className="ml-1 text-[10px] text-t500">({e.fase_codigo})</span>
                                                 ) : null}
+                                                {entregableEstaCancelado(e) ? (
+                                                  <span className="ml-1.5 inline-block rounded-r4 bg-slate-800 px-1 py-0.5 text-[8px] font-bold uppercase text-white">
+                                                    Cancelado
+                                                  </span>
+                                                ) : null}
                                               </td>
                                               <td className="px-2 py-1.5 text-t600">{pmRow}</td>
                                               <td className="px-2 py-1.5 text-t600">{lid}</td>
@@ -943,7 +990,14 @@ export default function Proyectos() {
                                               <td className="px-2 py-1.5 tabular-nums text-t700">
                                                 {fmtH(row.horasPresupuesto)} / {fmtH(row.horasGastadas)}
                                               </td>
-                                              <td className={`px-2 py-1.5 tabular-nums ${saldoStyle}`}>{fmtH(row.saldoHoras)}</td>
+                                              <td className={`px-2 py-1.5 tabular-nums ${saldoStyle}`}>
+                                                {fmtH(row.saldoHoras)}
+                                                {entregableEstaCancelado(e) ? (
+                                                  <span className="mt-0.5 block text-[8px] font-semibold uppercase text-slate-600">
+                                                    Anulado {fmtH(calcularSaldoAnuladoHoras(row.horasPresupuesto, row.horasGastadas))}
+                                                  </span>
+                                                ) : null}
+                                              </td>
                                               <td className={`px-2 py-1.5 tabular-nums ${consStyle}`}>{fmtPct(cons)}</td>
                                               <td className="px-2 py-1.5">
                                                 <div className="flex flex-wrap gap-0.5">
@@ -1080,12 +1134,25 @@ export default function Proyectos() {
                     <dt className="text-t500">Líder</dt>
                     <dd className="text-t800">{profMap.get(drawerRowLive.entregable.lider_id)?.nombre_completo ?? "—"}</dd>
                     <dt className="text-t500">Estado</dt>
-                    <dd>
+                    <dd className="flex flex-wrap items-center gap-1.5">
                       <StatusPill
                         variant={entregableEstadoToStatusVariant(String(drawerRowLive.entregable.estado))}
                         labelOverride={String(drawerRowLive.entregable.estado)}
                       />
+                      {entregableEstaCancelado(drawerRowLive.entregable) ? (
+                        <span className="rounded-r4 bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                          Cancelado
+                        </span>
+                      ) : null}
                     </dd>
+                    {entregableEstaCancelado(drawerRowLive.entregable) ? (
+                      <>
+                        <dt className="text-t500">Fecha cancelación</dt>
+                        <dd className="text-t800">{fmtDate(drawerRowLive.entregable.fecha_cancelacion ?? null)}</dd>
+                        <dt className="text-t500">Motivo cancelación</dt>
+                        <dd className="text-t800">{drawerRowLive.entregable.motivo_cancelacion?.trim() || "—"}</dd>
+                      </>
+                    ) : null}
                     <dt className="text-t500">Fechas</dt>
                     <dd className="text-t800">
                       {fmtDate(drawerRowLive.entregable.fecha_inicio)} → {fmtDate(drawerRowLive.entregable.fecha_termino)}
@@ -1126,7 +1193,26 @@ export default function Proyectos() {
                     <dt className="text-t500">Saldo horas</dt>
                     <dd className={`tabular-nums ${drawerRowLive.saldoHoras < 0 ? "font-semibold text-rose-700" : "text-t800"}`}>
                       {fmtH(drawerRowLive.saldoHoras)}
+                      <span className="mt-0.5 block text-[10px] font-normal text-t500">
+                        Presupuesto − gasto (no es consumo)
+                      </span>
                     </dd>
+                    {entregableEstaCancelado(drawerRowLive.entregable) ? (
+                      <>
+                        <dt className="text-t500">Saldo anulado</dt>
+                        <dd className="tabular-nums font-semibold text-slate-800">
+                          {fmtH(
+                            calcularSaldoAnuladoHoras(
+                              drawerRowLive.horasPresupuesto,
+                              drawerRowLive.horasGastadas,
+                            ),
+                          )}
+                          <span className="mt-0.5 block text-[10px] font-normal text-t500">
+                            No proyectable · no suma a gasto real
+                          </span>
+                        </dd>
+                      </>
+                    ) : null}
                     <dt className="text-t500">Alertas activas</dt>
                     <dd>
                       {drawerRowLive.alertasActivas.length > 0 ? (
@@ -1238,6 +1324,28 @@ export default function Proyectos() {
                       <LayoutList size={14} /> Detalle formulario
                     </Button>
                   ) : null}
+                  {puedeCancelarEntregable && !entregableEstaCancelado(drawerRowLive.entregable) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] gap-1 border-rose-200 text-[11px] text-rose-800 md:min-h-0"
+                      onClick={() => setCancelarEnt(drawerRowLive)}
+                    >
+                      Cancelar entregable
+                    </Button>
+                  ) : null}
+                  {puedeCancelarEntregable && entregableEstaCancelado(drawerRowLive.entregable) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
+                      onClick={() => reactivarEntregable(drawerRowLive.entregable.id)}
+                    >
+                      Reactivar entregable
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="mt-2">
                   <EntregableRedistribuirHorasTrigger ent={drawerRowLive.entregable} />
@@ -1255,6 +1363,17 @@ export default function Proyectos() {
         proyectoNombre={notaEnt ? `${notaEnt.proyecto.codigo} · ${notaEnt.proyecto.nombre}` : ""}
         onClose={() => setNotaEnt(null)}
         onSave={guardarNota}
+      />
+      <EntregableCancelarModal
+        open={cancelarEnt != null}
+        entregable={cancelarEnt?.entregable ?? null}
+        clienteNombre={cancelarEnt?.cliente.nombre ?? ""}
+        proyectoNombre={
+          cancelarEnt ? `${cancelarEnt.proyecto.codigo} · ${cancelarEnt.proyecto.nombre}` : ""
+        }
+        saldoPendienteHoras={cancelarEnt?.saldoHoras ?? 0}
+        onClose={() => setCancelarEnt(null)}
+        onConfirm={confirmarCancelarEntregable}
       />
     </div>
   );

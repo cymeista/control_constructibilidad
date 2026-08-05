@@ -107,6 +107,11 @@ export function canEditEstadoProyecto(role: AppRole): boolean {
   return role === "ADMIN";
 }
 
+/** Cancelar / reactivar entregable sin alterar horas ni presupuesto. */
+export function canCancelarEntregable(role: AppRole): boolean {
+  return role === "ADMIN" || role === "EDITOR";
+}
+
 export function canAsignar(role: AppRole): boolean {
   return role === "ADMIN";
 }

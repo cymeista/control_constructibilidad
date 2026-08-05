@@ -76,6 +76,7 @@ export type ProyeccionHorasObservacion = {
     | "SALDO_CERO"
     | "COMPLETADO"
     | "PROYECTO_NO_ACTIVO"
+    | "ENTREGABLE_CANCELADO"
     | "FUERA_HORIZONTE"
     | "SIN_DIAS_HABILES"
     /** Término del entregable anterior a fecha de consulta; saldo no se proyecta al pasado. */
@@ -149,6 +150,7 @@ export type ProyeccionHorasSnapshot = {
     entregables_proyectados: number;
     excluidos_sin_fechas: number;
     excluidos_completados: number;
+    excluidos_cancelados: number;
     excluidos_saldo_cero: number;
     excluidos_proyecto_no_activo: number;
     excluidos_fuera_horizonte: number;

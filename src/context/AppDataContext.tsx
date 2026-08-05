@@ -208,6 +208,14 @@ export interface Entregable {
   nota_seguimiento_updated_at?: string | null;
   /** Fecha (YYYY-MM-DD) en que se marcó como completado/100%. */
   fecha_completado?: string | null;
+  /**
+   * Cancelación operativa (Etapa 1): no altera presupuesto ni gasto real.
+   * Backups antiguos sin el campo se tratan como no cancelado.
+   */
+  cancelado?: boolean;
+  /** YYYY-MM-DD; solo relevante si cancelado. */
+  fecha_cancelacion?: string | null;
+  motivo_cancelacion?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -257,6 +265,15 @@ function normalizeEntregableRow(e: Entregable, proyectos: Proyecto[]): Entregabl
     fecha_completado: e.fecha_completado != null && String(e.fecha_completado).trim() !== ""
       ? String(e.fecha_completado).trim()
       : null,
+    cancelado: e.cancelado === true,
+    fecha_cancelacion:
+      e.cancelado === true && e.fecha_cancelacion != null && String(e.fecha_cancelacion).trim() !== ""
+        ? String(e.fecha_cancelacion).trim()
+        : null,
+    motivo_cancelacion:
+      e.cancelado === true && typeof e.motivo_cancelacion === "string" && e.motivo_cancelacion.trim() !== ""
+        ? e.motivo_cancelacion.trim()
+        : null,
   };
 }
 
@@ -1499,9 +1516,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setData((prev) => {
       const safePatch = stripConsumoDelPatch(patch);
       const patchKeys = Object.keys(safePatch);
-      const soloNota =
+      const soloMetaOperativa =
         patchKeys.length > 0 &&
-        patchKeys.every((k) => k === "nota_seguimiento" || k === "nota_seguimiento_updated_at");
+        patchKeys.every((k) =>
+          [
+            "nota_seguimiento",
+            "nota_seguimiento_updated_at",
+            "cancelado",
+            "fecha_cancelacion",
+            "motivo_cancelacion",
+          ].includes(k),
+        );
       const ts = now();
       const today = ts.slice(0, 10);
       const merged = prev.entregables.map((x) => {
@@ -1509,7 +1534,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         const next = {
           ...x,
           ...safePatch,
-          presupuesto_categoria_definido: soloNota ? x.presupuesto_categoria_definido : true,
+          presupuesto_categoria_definido: soloMetaOperativa ? x.presupuesto_categoria_definido : true,
           updated_at: ts,
         } as Entregable;
 

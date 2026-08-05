@@ -90,6 +90,8 @@ export function etiquetaObservacionVista(codigo: ObservacionProyeccionVista["cod
       return "Completado";
     case "PROYECTO_NO_ACTIVO":
       return "Proyecto no activo";
+    case "ENTREGABLE_CANCELADO":
+      return "Entregable cancelado";
     case "FUERA_HORIZONTE":
       return "Fuera de horizonte";
     case "SIN_DIAS_HABILES":

@@ -22,6 +22,10 @@ import { buildConsumoMaps, fechaHoyIsoLocal } from "@/entregables/asignacionHora
 import { esRegistroConsumoRealValido } from "@/entregables/registroHoraConsumo";
 import { entregableEsCompletado } from "@/entregables/entregableDashboardFiltros";
 import {
+  calcularSaldoAnuladoHoras,
+  entregableEstaCancelado,
+} from "@/entregables/entregableCancelacion";
+import {
   buildControlCategoriasEntregable,
   gastoRealPorCategoriaDesdeMapaProf,
   presupuestoCategoriaEntregable,
@@ -245,6 +249,7 @@ export function buildProyeccionHorasSnapshot(
     entregables_proyectados: 0,
     excluidos_sin_fechas: 0,
     excluidos_completados: 0,
+    excluidos_cancelados: 0,
     excluidos_saldo_cero: 0,
     excluidos_proyecto_no_activo: 0,
     excluidos_fuera_horizonte: 0,
@@ -271,6 +276,26 @@ export function buildProyeccionHorasSnapshot(
         detalle,
       });
     };
+
+    if (entregableEstaCancelado(ent)) {
+      const gastoProf = gastoPorEnt.get(ent.id) ?? new Map();
+      let gastoTotal = 0;
+      for (const h of gastoProf.values()) gastoTotal += n0(h);
+      const presup = n0(ent.hrs_l2) + n0(ent.hrs_p4) + n0(ent.hrs_p3) + n0(ent.hrs_p2);
+      const saldoAnulado = calcularSaldoAnuladoHoras(presup, gastoTotal);
+      conteos.excluidos_cancelados += 1;
+      pushObs(
+        "ENTREGABLE_CANCELADO",
+        [
+          `Cliente: ${cl?.nombre ?? "—"}.`,
+          `Proyecto: ${labelProj} · ${pr?.nombre ?? "—"}.`,
+          `Saldo anulado: ${saldoAnulado.toFixed(1)} h (presupuesto ${presup.toFixed(1)} − gasto ${gastoTotal.toFixed(1)}; no proyectable).`,
+          `Fecha cancelación: ${(ent.fecha_cancelacion ?? "").trim() || "—"}.`,
+          `Motivo: ${(ent.motivo_cancelacion ?? "").trim() || "—"}.`,
+        ].join(" "),
+      );
+      continue;
+    }
 
     if (entregableEsCompletado(ent)) {
       conteos.excluidos_completados += 1;

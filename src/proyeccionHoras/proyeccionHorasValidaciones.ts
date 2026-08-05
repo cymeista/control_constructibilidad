@@ -481,6 +481,120 @@ export function ejecutarValidacionesProyeccionHoras(): Caso[] {
     });
   }
 
+  // C1. Cancelado no proyecta; saldo anulado; gasto/presupuesto intactos en entidad
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "eAct",
+        nombre: "Activo",
+        hrs_p4: 100,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-08-31",
+        cancelado: false,
+      }),
+      baseEnt({
+        id: "eCan",
+        nombre: "Cancelado",
+        hrs_p4: 180,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-08-31",
+        avance_real: 0.25,
+        estado: "EN_PLAZO",
+        cancelado: true,
+        fecha_cancelacion: "2026-08-05",
+        motivo_cancelacion: "Proyecto reorientado",
+      }),
+    ];
+    data.registro_horas = [
+      {
+        id: "rh1",
+        profesional_id: "prof1",
+        entregable_id: "eCan",
+        proyecto_id: "pr1",
+        fecha: "2026-07-10",
+        horas: 40,
+        tipo_hora: "DIRECTA",
+        descripcion: null,
+        created_at: "",
+        updated_at: "",
+      } as RegistroHora,
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 8,
+      factorCargabilidadPct: 100,
+    });
+    const ids = snap.entregables.map((e) => e.entregable_id);
+    const obsCan = snap.observaciones.find((o) => o.codigo === "ENTREGABLE_CANCELADO");
+    const entCan = data.entregables.find((e) => e.id === "eCan")!;
+    casos.push({
+      nombre: "C1. Cancelado excluido; activo proyecta; obs con saldo anulado",
+      ok:
+        ids.includes("eAct") &&
+        !ids.includes("eCan") &&
+        snap.conteos.excluidos_cancelados === 1 &&
+        !!obsCan &&
+        obsCan.detalle.includes("140.0") &&
+        entCan.avance_real === 0.25 &&
+        entCan.hrs_p4 === 180 &&
+        entCan.fecha_inicio === "2026-08-01",
+      detalle: `ids=${ids.join(",")} cancelados=${snap.conteos.excluidos_cancelados} obs=${obsCan?.detalle ?? "—"}`,
+    });
+  }
+
+  // C2. Sin campos cancelado (backup antiguo) sigue proyectando
+  {
+    const data = fixture();
+    const ent = baseEnt({
+      id: "eOld",
+      nombre: "Legacy",
+      hrs_p4: 50,
+      fecha_inicio: "2026-08-01",
+      fecha_termino: "2026-08-31",
+    });
+    delete (ent as { cancelado?: boolean }).cancelado;
+    data.entregables = [ent];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 6,
+    });
+    casos.push({
+      nombre: "C2. Backup sin cancelado proyecta normalmente",
+      ok: snap.entregables.length === 1 && snap.conteos.excluidos_cancelados === 0,
+      detalle: `proy=${snap.entregables.length} cancelados=${snap.conteos.excluidos_cancelados}`,
+    });
+  }
+
+  // C3. Reactivar (cancelado=false) vuelve a proyectar
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "eRe",
+        nombre: "Reactivado",
+        hrs_p4: 80,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-08-31",
+        cancelado: false,
+        fecha_cancelacion: null,
+        motivo_cancelacion: null,
+      }),
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 6,
+    });
+    casos.push({
+      nombre: "C3. Reactivado (cancelado=false) proyecta saldo",
+      ok:
+        snap.entregables.length === 1 &&
+        assertClose(snap.entregables[0]!.saldo_horas_total, 80) &&
+        snap.conteos.excluidos_cancelados === 0,
+      detalle: `proy=${snap.entregables.length} saldo=${snap.entregables[0]?.saldo_horas_total}`,
+    });
+  }
+
   return casos;
 }
 
