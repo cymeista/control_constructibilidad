@@ -3,13 +3,15 @@
  * Solo lectura: consume `buildProyeccionHorasSnapshot` sin mutar AppData.
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { Download } from "lucide-react";
 import { useAppData } from "@/context/AppDataContext";
 import SectionHeader from "@/components/SectionHeader";
 import KpiCard, {
   kpiDashboardSingleRowClassName,
   kpiDashboardSingleRowItemClassName,
 } from "@/components/KpiCard";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -27,6 +29,7 @@ import {
   type ProyeccionHorasHorizonteMeses,
   type ProyeccionHorasObservacion,
 } from "@/proyeccionHoras";
+import { downloadProyeccionHorasExcel } from "@/proyeccionHoras/proyeccionHorasExcelExport";
 
 const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] as const;
 
@@ -98,6 +101,8 @@ export default function GanttHoras() {
 
   const [horizonteMeses, setHorizonteMeses] = useState<ProyeccionHorasHorizonteMeses>(8);
   const [incluirL2, setIncluirL2] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const [errorExport, setErrorExport] = useState<string | null>(null);
 
   const fechaConsulta = useMemo(() => fechaHoyIsoLocal(), []);
 
@@ -188,6 +193,19 @@ export default function GanttHoras() {
     snapshot.observaciones.length +
     snapshot.comparacion_curva.filter((c) => Boolean(c.observacion)).length;
 
+  const onExportarExcel = useCallback(async () => {
+    setErrorExport(null);
+    setExportando(true);
+    try {
+      await downloadProyeccionHorasExcel(snapshot);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "No se pudo generar el Excel.";
+      setErrorExport(msg);
+    } finally {
+      setExportando(false);
+    }
+  }, [snapshot]);
+
   const stickyLeft =
     "sticky left-0 z-[1] bg-inherit shadow-[2px_0_0_0_rgba(15,23,42,0.04)]";
 
@@ -236,7 +254,24 @@ export default function GanttHoras() {
           <span className="font-mono text-[12px] text-t800">{fmtFechaCorta(fechaConsulta)}</span>
         </div>
 
-        <p className="pb-1.5 text-[10px] leading-snug text-t500 sm:ml-auto sm:max-w-sm sm:text-right">
+        <div className="flex flex-col gap-1 pb-0.5 sm:ml-auto">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="rounded-r8"
+            disabled={exportando}
+            onClick={() => void onExportarExcel()}
+          >
+            <Download className="mr-1.5 size-3.5" aria-hidden />
+            {exportando ? "Generando…" : "Exportar Excel"}
+          </Button>
+          {errorExport ? (
+            <p className="max-w-[16rem] text-[10px] text-[#B91C1C]">{errorExport}</p>
+          ) : null}
+        </div>
+
+        <p className="w-full pb-1.5 text-[10px] leading-snug text-t500 sm:max-w-sm sm:text-right">
           Saldo = presupuesto vigente − gasto real DIRECTA
           {incluirL2 ? " (L2+P4+P3+P2)" : " (P4+P3+P2; L2 excluido)"}. Distribución desde inicio efectivo.
         </p>

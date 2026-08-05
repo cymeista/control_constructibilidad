@@ -15,3 +15,9 @@ export {
   ejecutarValidacionesProyeccionHoras,
   formatearResultadoValidacionesProyeccionHoras,
 } from "@/proyeccionHoras/proyeccionHorasValidaciones";
+export {
+  downloadProyeccionHorasExcel,
+  buildProyeccionHorasWorkbook,
+  nombreArchivoProyeccionHoras,
+  verificarEstructuraExcelProyeccion,
+} from "@/proyeccionHoras/proyeccionHorasExcelExport";
