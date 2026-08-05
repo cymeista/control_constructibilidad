@@ -65,7 +65,6 @@ import {
   horasEntregableARecord,
   tarifasDesdeProyecto,
   historialRedistribucionPorEntregable,
-  resolverTechoTotalHorasRedistribucion,
   resolverUfTechoRedistribucion,
   validarRedistribucionHoras,
 } from "@/entregables/redistribucionHorasEntregable";
@@ -2509,11 +2508,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           prev.historial_redistribuciones_horas ?? [],
           ent.id,
         );
-        const techoTotalHoras = resolverTechoTotalHorasRedistribucion(horasAct, histEnt);
         const ufTecho = resolverUfTechoRedistribucion(horasAct, tr.tarifas, histEnt);
         const errs = validarRedistribucionHoras(horasAct, input.horasNuevas, lineas, tr.tarifas, input.comentario, {
           exigirMultiploMediaHora: false,
-          techoTotalHoras,
           ufTecho,
         });
         if (errs.length) {

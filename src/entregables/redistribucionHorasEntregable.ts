@@ -39,6 +39,18 @@ export function mensajeAdvertenciaUfMenorAlOriginal(deltaUf: number): string | n
   return `Redistribución permitida: el presupuesto UF final queda por debajo del presupuesto original en ${x.toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} UF. No se aumenta el monto total del entregable.`;
 }
 
+/** Informativo: el total de horas puede subir si se mueven UF hacia categorías más baratas. No bloquea. */
+export function mensajeAdvertenciaHorasTotalesAumentan(
+  horasReferencia: number,
+  horasDespues: number,
+): string | null {
+  if (horasDespues <= horasReferencia + 1e-6) return null;
+  return "El total de horas aumenta respecto de la referencia original, pero el presupuesto UF se mantiene dentro del permitido.";
+}
+
+export const MENSAJE_UF_SUPERA_PRESUPUESTO_PERMITIDO =
+  "El presupuesto UF final supera el presupuesto permitido del entregable.";
+
 export type HorasPorCategoria = Record<AsignacionHoraCategoria, number>;
 
 export type TarifasPorCategoria = HorasPorCategoria;
@@ -77,9 +89,9 @@ export function entregableConHorasPresupuesto(ent: Entregable, horas: HorasPorCa
 }
 
 /**
- * Techo de horas totales: máximo entre el presupuesto actual y el mayor
- * `horas_antes` del historial (estado validado al inicio de cada operación).
- * No usa `horas_despues` para evitar elevar el techo por registros inflados.
+ * Referencia informativa de horas totales (no es techo rígido): máximo entre el
+ * presupuesto actual y el mayor `horas_antes` del historial.
+ * No usa `horas_despues`. El control económico es UF, no este valor.
  */
 export function resolverTechoTotalHorasRedistribucion(
   horasActuales: HorasPorCategoria,
@@ -92,6 +104,9 @@ export function resolverTechoTotalHorasRedistribucion(
   }
   return Math.max(actual, maxAntes);
 }
+
+/** Alias semántico: referencia de horas originales (informativo). */
+export const resolverHorasReferenciaRedistribucion = resolverTechoTotalHorasRedistribucion;
 
 /** UF techo: presupuesto UF original (máx. uf_total_antes en historial + actual). */
 export function resolverUfTechoRedistribucion(
@@ -106,13 +121,26 @@ export function resolverUfTechoRedistribucion(
   return uf;
 }
 
-/** Horas liberadas del techo aún no asignadas a ninguna categoría. */
+/**
+ * @deprecated Las horas no son una bolsa equivalente entre categorías.
+ * Conservado por compatibilidad; no usar como control de redistribución.
+ */
 export function calcularSaldoNoDistribuido(techoTotalHoras: number, horas: HorasPorCategoria): number {
   return Math.max(0, techoTotalHoras - sumaHorasPorCategoria(horas));
 }
 
+/** Headroom UF disponible respecto del techo (+ tolerancia) antes de compensar orígenes. */
+export function ufHeadroomRedistribucion(ufActual: number, ufTecho: number): number {
+  return Math.max(0, ufTecho + UF_REDISTRIBUCION_TOLERANCIA - ufActual);
+}
+
 export type OpcionesTechoRedistribucion = {
+  /**
+   * @deprecated No es techo rígido. Ignorado por validación y motor UF.
+   * Conservado solo por compatibilidad de firma.
+   */
   techoTotalHoras?: number;
+  /** Presupuesto UF de referencia del entregable (control duro). */
   ufTecho?: number;
 };
 
@@ -301,12 +329,10 @@ export function generarPropuestaRedistribucion(
   const horasPropuestas: HorasPorCategoria = { ...horasActuales };
   const adds: Partial<Record<AsignacionHoraCategoria, number>> = {};
   let ufNecesaria = 0;
-  const saldoPool =
-    techo?.techoTotalHoras != null
-      ? calcularSaldoNoDistribuido(techo.techoTotalHoras, horasActuales)
-      : 0;
   const ufTecho =
     techo?.ufTecho ?? calcularUfEntregablePorCategoria(horasActuales, tarifas);
+  const ufActual = calcularUfEntregablePorCategoria(horasActuales, tarifas);
+  let ufHeadroomRestante = ufHeadroomRedistribucion(ufActual, ufTecho);
 
   if (objetivo) {
     const ln = lineas.find((l) => l.categoria === objetivo.categoriaDestino);
@@ -322,9 +348,10 @@ export function generarPropuestaRedistribucion(
     if (add > 0) {
       adds[objetivo.categoriaDestino] = add;
       horasPropuestas[objetivo.categoriaDestino] = horasActuales[objetivo.categoriaDestino] + add;
-      const desdePool = Math.min(add, saldoPool);
-      const desdeOrigenes = Math.max(0, add - desdePool);
-      ufNecesaria += desdeOrigenes * tarifas[objetivo.categoriaDestino];
+      const ufAdd = add * tarifas[objetivo.categoriaDestino];
+      const desdeHeadroom = Math.min(ufAdd, ufHeadroomRestante);
+      ufHeadroomRestante -= desdeHeadroom;
+      ufNecesaria += Math.max(0, ufAdd - desdeHeadroom);
     }
   } else {
     for (const ln of lineas) {
@@ -333,7 +360,10 @@ export function generarPropuestaRedistribucion(
       if (add <= 0) continue;
       adds[ln.categoria] = add;
       horasPropuestas[ln.categoria] = horasActuales[ln.categoria] + add;
-      ufNecesaria += add * tarifas[ln.categoria];
+      const ufAdd = add * tarifas[ln.categoria];
+      const desdeHeadroom = Math.min(ufAdd, ufHeadroomRestante);
+      ufHeadroomRestante -= desdeHeadroom;
+      ufNecesaria += Math.max(0, ufAdd - desdeHeadroom);
     }
   }
 
@@ -383,18 +413,12 @@ export function generarPropuestaRedistribucion(
 
   let incompleta = false;
   let mensajeIncompleta: string | null = null;
-  if (objetivo && ufNecesaria <= 1e-6 && adds[objetivo.categoriaDestino] == null) {
+  if (objetivo && adds[objetivo.categoriaDestino] == null) {
     incompleta = true;
     mensajeIncompleta =
       objetivo.modo === "deficit"
         ? `No hay déficit detectado para ${objetivo.categoriaDestino} (o el déficit es 0 h tras redondear a 0,5 h).`
         : "Indique horas a agregar mayores a 0 (se redondean hacia arriba al múltiplo de 0,5 h más cercano).";
-  } else if (
-    techo?.techoTotalHoras != null &&
-    sumaHorasPorCategoria(horasRefinadas) > techo.techoTotalHoras + 1e-6
-  ) {
-    incompleta = true;
-    mensajeIncompleta = `El total de horas superaría el presupuesto original del entregable (${techo.techoTotalHoras.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h).`;
   } else if (deltaUfRedistribucionExcedeToleranciaAlza(diferenciaUfVsTecho)) {
     incompleta = true;
     mensajeIncompleta =
@@ -430,7 +454,6 @@ function propuestaAgregarManualCumple(
   const errs = validarRedistribucionHoras(horasActuales, horasProp, lineas, tarifas, ".", {
     exigirMultiploMediaHora: true,
     exigirComentario: false,
-    techoTotalHoras: techo?.techoTotalHoras,
     ufTecho: techo?.ufTecho,
   });
   return errs.length === 0;
@@ -475,10 +498,6 @@ function buscarSugerenciasAgregarHoras(
   techo?: OpcionesTechoRedistribucion,
 ): SugerenciaRedistribAgregar[] {
   const ufTecho = techo?.ufTecho ?? ufAntes;
-  const saldoPool =
-    techo?.techoTotalHoras != null
-      ? calcularSaldoNoDistribuido(techo.techoTotalHoras, horasActuales)
-      : 0;
   const mins = Object.fromEntries(lineas.map((ln) => [ln.categoria, ln.gastoRealRegistroHora])) as HorasPorCategoria;
   const lnBy = Object.fromEntries(lineas.map((ln) => [ln.categoria, ln])) as Record<
     AsignacionHoraCategoria,
@@ -513,7 +532,6 @@ function buscarSugerenciasAgregarHoras(
       const o = origins[k];
       if (horasActuales[o] - h[o] > caps[o] + 1e-9) return;
     }
-    if (techo?.techoTotalHoras != null && sumaHorasPorCategoria(h) > techo.techoTotalHoras + 1e-6) return;
     const deltaUf = calcularUfEntregablePorCategoria(h, tarifas) - ufTecho;
     if (deltaUf > UF_REDISTRIBUCION_TOLERANCIA + 1e-9) return;
 
@@ -579,10 +597,8 @@ function buscarSugerenciasAgregarHoras(
 
   for (let sd = 1; sd <= maxAddSteps; sd++) {
     const addDest = sd * 0.5;
-    if (saldoPool > 1e-9 && addDest <= saldoPool + 1e-9) {
-      tryCombo(addDest, origins.map(() => 0));
-      continue;
-    }
+    // Sin compensación de orígenes si el headroom UF lo permite (el total de horas puede subir).
+    tryCombo(addDest, origins.map(() => 0));
     if (origins.length !== 3) {
       const rec = (i: number, acc: number[]) => {
         if (i === origins.length) {
@@ -619,10 +635,8 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
   techo?: OpcionesTechoRedistribucion,
 ): ResultadoRedistribDestinoCompleto {
   const ufAntes = calcularUfEntregablePorCategoria(horasActuales, tarifas);
-  const saldoPool =
-    techo?.techoTotalHoras != null
-      ? calcularSaldoNoDistribuido(techo.techoTotalHoras, horasActuales)
-      : 0;
+  const ufTechoVal = techo?.ufTecho ?? ufAntes;
+  const ufHeadroom = ufHeadroomRedistribucion(ufAntes, ufTechoVal);
   const raw = Number(horasAAgregarBrutas);
   const addRounded = redondearMediaHoraHaciaArriba(Number.isFinite(raw) && raw > 0 ? raw : 0);
 
@@ -655,10 +669,9 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
   }
 
   const ufReq = addRounded * tarifas[categoriaDestino];
-  const desdePool = Math.min(addRounded, saldoPool);
-  const ufReqOrigenes = Math.max(0, addRounded - desdePool) * tarifas[categoriaDestino];
+  const ufReqOrigenes = Math.max(0, ufReq - ufHeadroom);
   const origins = CATEGORIAS_REDIST.filter((c) => c !== categoriaDestino);
-  let ufCompensableMax = desdePool * tarifas[categoriaDestino];
+  let ufCompensableMax = ufHeadroom;
   for (const o of origins) {
     const ln = lineas.find((l) => l.categoria === o)!;
     ufCompensableMax += maxHorasReduciblesDesdeActual(ln, horasActuales[o]) * tarifas[o];
@@ -717,7 +730,6 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
     techo,
   );
 
-  const ufTechoVal = techo?.ufTecho ?? ufAntes;
   const viableFromSearch = sugerencias.filter(
     (s) =>
       deltaUfRedistribucionPermitido(
@@ -758,14 +770,19 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
     };
   }
 
-  const insufUfTeorica = ufCompensableMax + 1e-9 < ufReqOrigenes - 1e-9 && desdePool + 1e-9 < addRounded;
+  const insufUfTeorica = ufCompensableMax + 1e-9 < ufReq - 1e-9;
   const mensajes: string[] = [];
 
   if (insufUfTeorica) {
     mensajes.push("No hay UF disponible suficiente para compensar esta redistribución con las horas movibles actuales.");
     mensajes.push(
-      `UF requerida (incremento en ${categoriaDestino}): ${ufReq.toFixed(4)}. UF máxima compensable en orígenes: ${ufCompensableMax.toFixed(4)} (déficit aprox. ${(ufReq - ufCompensableMax).toFixed(4)} UF).`,
+      `UF requerida (incremento en ${categoriaDestino}): ${ufReq.toFixed(4)}. UF máxima compensable (headroom + orígenes): ${ufCompensableMax.toFixed(4)} (déficit aprox. ${(ufReq - ufCompensableMax).toFixed(4)} UF).`,
     );
+    if (ufReqOrigenes > 1e-9) {
+      mensajes.push(
+        `Tras headroom UF (${ufHeadroom.toFixed(4)}), aún se requieren ${ufReqOrigenes.toFixed(4)} UF desde orígenes.`,
+      );
+    }
     if (p.incompleta && p.mensajeIncompleta) mensajes.push(p.mensajeIncompleta);
     if (!sugerencias.length) {
       mensajes.push(
@@ -790,7 +807,7 @@ export function calcularRedistribucionAgregarHorasDestinoCompleto(
     `No es posible generar una redistribución válida para +${addRounded.toFixed(1)} h en ${categoriaDestino} sin superar +${UF_REDISTRIBUCION_TOLERANCIA} UF de aumento total (redondeo 0,5 h).`,
   );
   mensajes.push(
-    `UF requerida (incremento redondeado): ${ufReq.toFixed(4)}. UF máxima compensable en orígenes (en pasos de 0,5 h): ${ufCompensableMax.toFixed(4)}.`,
+    `UF requerida (incremento redondeado): ${ufReq.toFixed(4)}. UF máxima compensable (headroom + orígenes en pasos de 0,5 h): ${ufCompensableMax.toFixed(4)}.`,
   );
   mensajes.push(
     "Hay disponibilidad en origen, pero no existe combinación válida que cubra el incremento sin aumentar la UF total por encima del límite (discretización / tarifas). Pruebe un ajuste manual conservador.",
@@ -898,9 +915,12 @@ export type OpcionesValidacionRedistribucion = {
   exigirMultiploMediaHora?: boolean;
   /** Si false, no exige comentario (solo vista previa en UI). */
   exigirComentario?: boolean;
-  /** Techo horas total del entregable (incluye saldo no distribuido). */
+  /**
+   * @deprecated No es techo rígido. Ignorado: el total de horas es informativo.
+   * Conservado solo por compatibilidad de firma.
+   */
   techoTotalHoras?: number;
-  /** UF techo de referencia (presupuesto original). */
+  /** UF techo de referencia (presupuesto original). Control duro: ΔUF ≤ +0,05. */
   ufTecho?: number;
 };
 
@@ -1214,19 +1234,11 @@ export function validarRedistribucionHoras(
     opciones?.ufTecho ?? calcularUfEntregablePorCategoria(horasActuales, tarifas);
   const du = calcularUfEntregablePorCategoria(horasNuevas, tarifas) - ufRef;
   if (deltaUfRedistribucionExcedeToleranciaAlza(du)) {
-    errs.push(
-      `La UF total superaría el presupuesto original en más de ${UF_REDISTRIBUCION_TOLERANCIA} UF (ΔUF ${du.toFixed(4)} vs techo). Ajuste las horas finales por categoría.`,
-    );
+    errs.push(MENSAJE_UF_SUPERA_PRESUPUESTO_PERMITIDO);
   }
 
-  if (opciones?.techoTotalHoras != null) {
-    const sumNueva = sumaHorasPorCategoria(horasNuevas);
-    if (sumNueva > opciones.techoTotalHoras + 1e-6) {
-      errs.push(
-        `El total de horas (${sumNueva.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h) supera el presupuesto original del entregable (${opciones.techoTotalHoras.toLocaleString("es-CL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h).`,
-      );
-    }
-  }
+  // techoTotalHoras se ignora a propósito: el total de horas no es techo rígido
+  // (categorías con tarifas distintas; el control económico es UF).
 
   return errs;
 }
