@@ -326,12 +326,35 @@ export function ejecutarValidacionesProyeccionHoras(): Caso[] {
       nombre: "12. Comparación con curva objetivo (diff = disponible − proyectado)",
       ok:
         !!ago &&
+        assertClose(ago.capacidad_base, 1000) &&
         assertClose(ago.horas_disponibles, 1000) &&
         assertClose(ago.horas_proyectadas, 200) &&
         assertClose(ago.diferencia, 800) &&
+        ago.factor_cargabilidad_pct === 100 &&
         ago.utilizacion_pct != null &&
         assertClose(ago.utilizacion_pct, 20),
       detalle: ago ? JSON.stringify(ago) : "sin fila agosto",
+    });
+
+    const snap85 = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 6,
+      factorCargabilidadPct: 85,
+    });
+    const ago85 = snap85.comparacion_curva.find((c) => c.mes === "2026-08");
+    casos.push({
+      nombre: "12b. Factor 85%: capacidad considerada = base × 0.85; carga intacta",
+      ok:
+        !!ago85 &&
+        assertClose(ago85.capacidad_base, 1000) &&
+        assertClose(ago85.horas_disponibles, 850) &&
+        assertClose(ago85.horas_proyectadas, 200) &&
+        assertClose(ago85.diferencia, 650) &&
+        ago85.factor_cargabilidad_pct === 85 &&
+        ago85.utilizacion_pct != null &&
+        assertClose(ago85.utilizacion_pct, (200 / 850) * 100) &&
+        assertClose(snap85.total_general.horas_en_horizonte, snap.total_general.horas_en_horizonte),
+      detalle: ago85 ? JSON.stringify(ago85) : "sin fila agosto 85%",
     });
   }
 

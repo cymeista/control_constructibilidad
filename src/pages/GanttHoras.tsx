@@ -26,6 +26,7 @@ import { fechaHoyIsoLocal } from "@/entregables/asignacionHoraConsumo";
 import {
   buildProyeccionHorasSnapshot,
   type ProyeccionHorasEntregableRow,
+  type ProyeccionHorasFactorCargabilidadPct,
   type ProyeccionHorasHorizonteMeses,
 } from "@/proyeccionHoras";
 import { downloadProyeccionHorasExcel } from "@/proyeccionHoras/proyeccionHorasExcelExport";
@@ -33,6 +34,8 @@ import {
   clasificarObservacionesSnapshot,
   etiquetaObservacionVista,
 } from "@/proyeccionHoras/proyeccionHorasObservaciones";
+
+const FACTORES_CARGABILIDAD: ProyeccionHorasFactorCargabilidadPct[] = [100, 90, 85, 80];
 
 const MESES_CORTO = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"] as const;
 
@@ -81,6 +84,8 @@ export default function GanttHoras() {
 
   const [horizonteMeses, setHorizonteMeses] = useState<ProyeccionHorasHorizonteMeses>(8);
   const [incluirL2, setIncluirL2] = useState(false);
+  const [factorCargabilidadPct, setFactorCargabilidadPct] =
+    useState<ProyeccionHorasFactorCargabilidadPct>(85);
   const [mostrarObsNoCriticas, setMostrarObsNoCriticas] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [errorExport, setErrorExport] = useState<string | null>(null);
@@ -102,7 +107,7 @@ export default function GanttHoras() {
           fechaConsulta,
           horizonteMeses,
           incluirL2,
-          factorCargabilidadPct: 100,
+          factorCargabilidadPct,
         },
       ),
     [
@@ -115,6 +120,7 @@ export default function GanttHoras() {
       fechaConsulta,
       horizonteMeses,
       incluirL2,
+      factorCargabilidadPct,
     ],
   );
 
@@ -159,15 +165,19 @@ export default function GanttHoras() {
     });
   }, [snapshot]);
 
-  const horasDisponiblesTotal = useMemo(
+  const horasConsideradasTotal = useMemo(
     () => snapshot.comparacion_curva.reduce((s, m) => s + m.horas_disponibles, 0),
     [snapshot.comparacion_curva],
   );
+  const horasBaseTotal = useMemo(
+    () => snapshot.comparacion_curva.reduce((s, m) => s + m.capacidad_base, 0),
+    [snapshot.comparacion_curva],
+  );
   const horasProyectadasTotal = snapshot.total_general.horas_en_horizonte;
-  const brechaTotal = Math.round((horasDisponiblesTotal - horasProyectadasTotal) * 100) / 100;
+  const brechaTotal = Math.round((horasConsideradasTotal - horasProyectadasTotal) * 100) / 100;
   const utilizacionTotal =
-    horasDisponiblesTotal > 1e-9
-      ? Math.round((horasProyectadasTotal / horasDisponiblesTotal) * 10000) / 100
+    horasConsideradasTotal > 1e-9
+      ? Math.round((horasProyectadasTotal / horasConsideradasTotal) * 10000) / 100
       : null;
 
   const obsClasificadas = useMemo(() => clasificarObservacionesSnapshot(snapshot), [snapshot]);
@@ -234,6 +244,30 @@ export default function GanttHoras() {
           </Label>
         </div>
 
+        <div className="flex min-w-[10rem] flex-col gap-1.5">
+          <Label className="text-[11px] font-semibold text-t600">Capacidad considerada</Label>
+          <Select
+            value={String(factorCargabilidadPct)}
+            onValueChange={(v) => {
+              const n = Number(v);
+              if (FACTORES_CARGABILIDAD.includes(n as ProyeccionHorasFactorCargabilidadPct)) {
+                setFactorCargabilidadPct(n as ProyeccionHorasFactorCargabilidadPct);
+              }
+            }}
+          >
+            <SelectTrigger className="h-9 w-[9.5rem] rounded-r8 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FACTORES_CARGABILIDAD.map((f) => (
+                <SelectItem key={f} value={String(f)}>
+                  {f}%
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex min-w-[10rem] flex-col gap-1 pb-1.5 text-[11px] text-t600">
           <span className="font-semibold">Fecha de consulta</span>
           <span className="font-mono text-[12px] text-t800">{fmtFechaCorta(fechaConsulta)}</span>
@@ -275,9 +309,9 @@ export default function GanttHoras() {
         <div className={kpiDashboardSingleRowItemClassName}>
           <KpiCard
             compact
-            label="Disponibles (curva)"
-            value={fmtH(horasDisponiblesTotal)}
-            subtitle="Objetivo mensual 100%"
+            label="Capacidad considerada"
+            value={fmtH(horasConsideradasTotal)}
+            subtitle={`${factorCargabilidadPct}% · base ${fmtH(horasBaseTotal)} h`}
             topColor="#1e4a6e"
           />
         </div>
@@ -295,7 +329,7 @@ export default function GanttHoras() {
             compact
             label="Utilización"
             value={fmtPct(utilizacionTotal)}
-            subtitle="Proyectadas / disponibles"
+            subtitle={`Proyectadas / capacidad ${factorCargabilidadPct}%`}
             topColor="#B45309"
           />
         </div>
@@ -384,19 +418,25 @@ export default function GanttHoras() {
 
       <section className="space-y-2">
         <h3 className="text-[13px] font-semibold text-t900">Resumen vs curva objetivo</h3>
+        <p className="text-[11px] text-t600">
+          Capacidad considerada = base 100% × {factorCargabilidadPct}%. La carga proyectada no cambia con el
+          factor.
+        </p>
         <div className="overflow-x-auto rounded-r10 border border-bdr bg-white shadow-xs">
-          <table className="w-full min-w-[720px] border-collapse text-[11px]">
+          <table className="w-full min-w-[880px] border-collapse text-[11px]">
             <thead>
               <tr className="border-b border-bdr bg-surface2 text-left text-[10px] uppercase tracking-wide text-t500">
                 <th className="p-2 font-semibold">Mes</th>
-                <th className="p-2 text-right font-semibold">Disponibles</th>
-                <th className="p-2 text-right font-semibold">Proyectadas</th>
-                <th className="p-2 text-right font-semibold">Diferencia</th>
-                <th className="p-2 text-right font-semibold">Utiliz. %</th>
-                <th className="p-2 text-right font-semibold">Acum. disp.</th>
+                <th className="p-2 text-right font-semibold">Capacidad base</th>
+                <th className="p-2 text-right font-semibold">Factor</th>
+                <th className="p-2 text-right font-semibold">Capacidad considerada</th>
+                <th className="p-2 text-right font-semibold">Horas proyectadas</th>
+                <th className="p-2 text-right font-semibold">Brecha</th>
+                <th className="p-2 text-right font-semibold">Utilización %</th>
+                <th className="p-2 font-semibold">Estado</th>
+                <th className="p-2 text-right font-semibold">Acum. cap.</th>
                 <th className="p-2 text-right font-semibold">Acum. proy.</th>
                 <th className="p-2 text-right font-semibold">Brecha acum.</th>
-                <th className="p-2 font-semibold">Estado</th>
               </tr>
             </thead>
             <tbody>
@@ -405,7 +445,11 @@ export default function GanttHoras() {
                 return (
                   <tr key={c.mes} className="border-b border-bdr/60">
                     <td className="p-2 font-mono font-semibold">{labelMesCorto(c.mes)}</td>
-                    <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.horas_disponibles)}</td>
+                    <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.capacidad_base)}</td>
+                    <td className="p-2 text-right font-mono tabular-nums">{c.factor_cargabilidad_pct}%</td>
+                    <td className="p-2 text-right font-mono tabular-nums font-semibold">
+                      {fmtH(c.horas_disponibles)}
+                    </td>
                     <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.horas_proyectadas)}</td>
                     <td
                       className={`p-2 text-right font-mono tabular-nums ${
@@ -415,15 +459,6 @@ export default function GanttHoras() {
                       {fmtH(c.diferencia)}
                     </td>
                     <td className="p-2 text-right font-mono tabular-nums">{fmtPct(c.utilizacion_pct)}</td>
-                    <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.acumulado_disponible)}</td>
-                    <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.acumulado_proyectado)}</td>
-                    <td
-                      className={`p-2 text-right font-mono tabular-nums ${
-                        c.brecha_acumulada < 0 ? "text-[#B91C1C]" : ""
-                      }`}
-                    >
-                      {fmtH(c.brecha_acumulada)}
-                    </td>
                     <td className="p-2">
                       <span
                         className={`inline-block rounded-r4 px-1.5 py-0.5 text-[10px] font-semibold ${
@@ -437,6 +472,15 @@ export default function GanttHoras() {
                       {c.observacion ? (
                         <span className="mt-0.5 block text-[9px] text-amber-800">{c.observacion}</span>
                       ) : null}
+                    </td>
+                    <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.acumulado_disponible)}</td>
+                    <td className="p-2 text-right font-mono tabular-nums">{fmtH(c.acumulado_proyectado)}</td>
+                    <td
+                      className={`p-2 text-right font-mono tabular-nums ${
+                        c.brecha_acumulada < 0 ? "text-[#B91C1C]" : ""
+                      }`}
+                    >
+                      {fmtH(c.brecha_acumulada)}
                     </td>
                   </tr>
                 );

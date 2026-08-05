@@ -153,7 +153,8 @@ function buildComparacionCurva(input: {
   curvas: CurvaObjetivoAnual[];
   factorCargabilidadPct: number;
 }): { filas: ProyeccionVsCurvaMes[]; curvasUsadas: ProyeccionHorasSnapshot["curvas_usadas"] } {
-  const f = Math.max(0, Math.min(100, input.factorCargabilidadPct)) / 100;
+  const factorPct = Math.round(Math.max(0, Math.min(100, input.factorCargabilidadPct)));
+  const f = factorPct / 100;
   const anios = new Set<number>();
   for (const mes of input.mesesHorizonte) {
     anios.add(Number(mes.slice(0, 4)));
@@ -168,7 +169,7 @@ function buildComparacionCurva(input: {
       curva_id: c?.id ?? null,
       curva_nombre: c?.nombre ?? null,
       fuente: c
-        ? `curvas_objetivo_anual · ${c.nombre} (${anio}) · objetivo_mensual × ${Math.round(f * 100)}%`
+        ? `curvas_objetivo_anual · ${c.nombre} (${anio}) · objetivo_mensual (base 100%) × ${factorPct}%`
         : `Sin curva objetivo para ${anio}`,
     });
   }
@@ -181,8 +182,9 @@ function buildComparacionCurva(input: {
     const mesNum = Number(mes.slice(5, 7));
     const curva = curvaByAnio.get(anio) ?? null;
     const rowMes = curva?.meses.find((m) => m.mes === mesNum);
-    const base = rowMes && Number.isFinite(rowMes.objetivo_mensual) ? rowMes.objetivo_mensual : 0;
-    const horas_disponibles = Math.round(base * f * 100) / 100;
+    const capacidad_base =
+      rowMes && Number.isFinite(rowMes.objetivo_mensual) ? Math.round(rowMes.objetivo_mensual * 100) / 100 : 0;
+    const horas_disponibles = Math.round(capacidad_base * f * 100) / 100;
     const horas_proyectadas = Math.round((input.horasProyectadasPorMes.get(mes) ?? 0) * 100) / 100;
     const diferencia = Math.round((horas_disponibles - horas_proyectadas) * 100) / 100;
     acumDisp += horas_disponibles;
@@ -191,6 +193,8 @@ function buildComparacionCurva(input: {
       horas_disponibles > EPS ? Math.round((horas_proyectadas / horas_disponibles) * 10000) / 100 : null;
     filas.push({
       mes,
+      capacidad_base,
+      factor_cargabilidad_pct: factorPct,
       horas_disponibles,
       horas_proyectadas,
       diferencia,
@@ -219,7 +223,7 @@ export function buildProyeccionHorasSnapshot(
   const horizonte_meses: ProyeccionHorasHorizonteMeses = opciones.horizonteMeses ?? 8;
   const incluir_l2 = opciones.incluirL2 === true;
   const soloProyectosActivos = opciones.soloProyectosActivos !== false;
-  const factorCargabilidadPct = opciones.factorCargabilidadPct ?? 100;
+  const factorCargabilidadPct = opciones.factorCargabilidadPct ?? 85;
 
   const mes_inicio_horizonte = mesInicioHorizonteDesdeConsulta(fecha_consulta);
   const meses_horizonte = listarMesesHorizonte(mes_inicio_horizonte, horizonte_meses);
@@ -499,6 +503,7 @@ export function buildProyeccionHorasSnapshot(
     mes_fin_horizonte,
     horizonte_meses,
     incluir_l2,
+    factor_cargabilidad_pct: Math.round(Math.max(0, Math.min(100, factorCargabilidadPct))),
     meses_horizonte,
     entregables: entregablesOut,
     agregados_cliente,

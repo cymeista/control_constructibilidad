@@ -4,6 +4,9 @@
 
 export type ProyeccionHorasHorizonteMeses = 6 | 8 | 12;
 
+/** Porcentaje de la curva objetivo usado como capacidad disponible para comparar. */
+export type ProyeccionHorasFactorCargabilidadPct = 100 | 90 | 85 | 80;
+
 export type ProyeccionHorasMesCell = {
   /** YYYY-MM */
   mes: string;
@@ -85,11 +88,20 @@ export type ProyeccionHorasObservacion = {
 
 export type ProyeccionVsCurvaMes = {
   mes: string;
-  /** Horas disponibles según curva objetivo (100%, sin factor cargabilidad). */
+  /** Capacidad base 100% = `objetivo_mensual` de la curva (sin factor). */
+  capacidad_base: number;
+  /** Factor de cargabilidad aplicado (100 | 90 | 85 | 80). */
+  factor_cargabilidad_pct: number;
+  /**
+   * Capacidad considerada = capacidad_base × factor/100.
+   * Es la base de brecha, utilización y estado OK/SOBRECARGA.
+   */
   horas_disponibles: number;
   horas_proyectadas: number;
+  /** Brecha = capacidad considerada − horas proyectadas. */
   diferencia: number;
   utilizacion_pct: number | null;
+  /** Acumulado de capacidad considerada. */
   acumulado_disponible: number;
   acumulado_proyectado: number;
   brecha_acumulada: number;
@@ -110,10 +122,11 @@ export type ProyeccionHorasOpciones = {
    */
   soloProyectosActivos?: boolean;
   /**
-   * Factor 0–100 aplicado a objetivo_mensual de la curva (como Dashboard).
-   * Default: 100 (sin descuento de cargabilidad).
+   * Factor aplicado a `objetivo_mensual` (capacidad base 100%) para obtener
+   * la capacidad considerada. Solo afecta comparación vs curva; no cambia carga.
+   * Default: 85.
    */
-  factorCargabilidadPct?: number;
+  factorCargabilidadPct?: ProyeccionHorasFactorCargabilidadPct | number;
 };
 
 export type ProyeccionHorasSnapshot = {
@@ -123,6 +136,8 @@ export type ProyeccionHorasSnapshot = {
   mes_fin_horizonte: string;
   horizonte_meses: ProyeccionHorasHorizonteMeses;
   incluir_l2: boolean;
+  /** Factor usado en la comparación vs curva (capacidad considerada). */
+  factor_cargabilidad_pct: number;
   meses_horizonte: string[];
   entregables: ProyeccionHorasEntregableRow[];
   agregados_cliente: ProyeccionHorasAgregadoRow[];
