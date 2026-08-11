@@ -472,6 +472,8 @@ export default function Home() {
   const [notaSegEntregableId, setNotaSegEntregableId] = useState<string | null>(null);
   const isBelowMd = useIsBelowMd();
   const [curvaExplicacionAbierta, setCurvaExplicacionAbierta] = useState(false);
+  /** Tendencia del equipo (curva/KPI): colapsada por defecto; solo UI local. */
+  const [tendenciaAbierta, setTendenciaAbierta] = useState(false);
 
   useEffect(() => {
     if (!toastCrearEntregable) return;
@@ -903,329 +905,12 @@ export default function Home() {
 
   return (
     <div className="min-w-0 max-w-full space-y-10 overflow-x-hidden pb-20 md:pb-0 lg:space-y-12">
-      {/* ── Section 1: Curva objetivo anual (equipo) ── */}
+      {/* ── Section 1: Control operativo (En control + Próximos) ── */}
       <section className="min-w-0 max-w-full overflow-x-hidden">
         <SectionHeader
           number="01"
-          title="Curva objetivo anual · equipo"
-          hint={
-            isBelowMd
-              ? `Actualizado ${nowStrCorto}`
-              : `Última actualización: ${nowStr} · CurvaObjetivoAnual + real RegistroHora + propuesta P4+P3+P2 por entregable (solo lectura)`
-          }
-        />
-
-        <div className="mb-4 flex flex-col gap-3 rounded-r12 border border-bdr bg-surface px-4 py-3 shadow-sh1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 sm:px-5 sm:py-4">
-          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-t400">
-            Factor de ajuste del objetivo
-          </span>
-          <div className="flex min-w-0 w-full items-center gap-3 sm:min-w-[120px] sm:flex-1">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={factor}
-              onChange={(e) => setFactor(Number(e.target.value))}
-              className="h-[6px] min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-surface2 accent-copper"
-            />
-            <span className="shrink-0 min-w-[40px] text-right font-sans text-[1.05rem] font-semibold tabular-nums text-copper sm:text-[1.15rem]">
-              {factor}%
-            </span>
-          </div>
-          <span className="min-w-0 text-[11px] leading-snug text-t300 md:hidden">
-            Multiplica la curva anual de <strong>horas directas esperadas</strong> (no es cargabilidad real). La curva
-            real viene de RegistroHora (DIRECTAS).
-          </span>
-          <span className="hidden min-w-0 text-[11px] text-t300 md:inline">
-            Recalcula en pantalla la <strong>meta de horas directas</strong> (curva anual × factor); no es el % de
-            cargabilidad real. La curva <strong>real</strong> viene de RegistroHora (DIRECTAS · prorrateadas por semana).
-            No modifica la curva objetivo guardada.
-          </span>
-        </div>
-
-        {/* Bloque Dashboard 1: solo CurvaObjetivoAnual (lectura; ajuste no persiste) */}
-        {!curvaObjetivoAnualActual ? (
-          <div className="mb-4 rounded-r12 border border-amber-500/45 bg-amber-500/10 px-4 py-4 text-[13px] text-t800 shadow-sh1">
-            <p className="font-semibold text-amber-950">No existe Curva Objetivo Anual para {anioCalendario}</p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-t700">
-              Crea la curva del año en curso en <strong>Formularios → Curva objetivo anual</strong>. Esta sección usa
-              únicamente esa fuente para la meta de equipo al 100% y la vista ajustada por factor (%), sin escribir en
-              los datos guardados.
-            </p>
-          </div>
-        ) : curvaObjetivoDashboard ? (
-          <div className="mb-6 space-y-4">
-            {curvaChartPack ? (
-              <div className="space-y-3">
-                {curvaChartPack.propuesta.exclusiones.totalEntregables -
-                  curvaChartPack.propuesta.exclusiones.incluidos >
-                0 ? (
-                  <div className="rounded-r8 border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-t800">
-                    <p className="font-semibold text-amber-950">
-                      {curvaChartPack.propuesta.exclusiones.totalEntregables -
-                        curvaChartPack.propuesta.exclusiones.incluidos}{" "}
-                      entregables excluidos de la curva de propuesta
-                    </p>
-                    <p className="mt-1 text-[11px] leading-snug text-t600 md:mt-0 md:inline">
-                      <span className="md:hidden">
-                        Fechas inválidas: {curvaChartPack.propuesta.exclusiones.porFechasInvalidasOVacias} · término
-                        &lt; inicio: {curvaChartPack.propuesta.exclusiones.porTerminoAntesQueInicio} · sin horas:{" "}
-                        {curvaChartPack.propuesta.exclusiones.porHorasNoPositivas}
-                      </span>
-                      <span className="hidden md:inline">
-                        {" "}
-                        · fechas vacías o inválidas: {curvaChartPack.propuesta.exclusiones.porFechasInvalidasOVacias} ·
-                        término &lt; inicio: {curvaChartPack.propuesta.exclusiones.porTerminoAntesQueInicio} · sin horas
-                        P4+P3+P2 &gt; 0: {curvaChartPack.propuesta.exclusiones.porHorasNoPositivas}
-                      </span>
-                    </p>
-                  </div>
-                ) : null}
-                {(() => {
-                  const horasVendidas = horasVendidasProyectosAnio(
-                    data.entregables,
-                    data.proyectos,
-                    anioCalendario,
-                  );
-                  const faltanteMes = faltanteVsObjetivoAjustadoMesDisplay(
-                    curvaObjetivoDashboard.kpis.objetivoMesActualAjustado,
-                    curvaChartPack.real.kpis.directasRealesMesActual,
-                  );
-                  const faltanteValor = faltanteMes.esSobreObjetivo
-                    ? `+${fmtHorasCurva(Math.abs(faltanteMes.valorHoras))} h`
-                    : `${fmtHorasCurva(faltanteMes.valorHoras)} h`;
-                  return (
-                    <div className={kpiDashboardSingleRowClassName}>
-                      <div className={kpiDashboardSingleRowItemClassName}>
-                        <KpiCard
-                          compact
-                          label="OBJETIVO ANUAL AJUSTADO"
-                          value={`${fmtHorasCurva(curvaObjetivoDashboard.kpis.objetivoAnualAjustado)} h`}
-                          subtitle={
-                            isBelowMd
-                              ? `Curva anual × ${factor}%`
-                              : `Meta anual horas directas · curva × ${factor}% (no es cargabilidad real)`
-                          }
-                          topColor="#4f46e5"
-                        />
-                      </div>
-                      <div className={kpiDashboardSingleRowItemClassName}>
-                        <KpiCard
-                          compact
-                          label={
-                            isBelowMd
-                              ? `HORAS VENDIDAS ${anioCalendario}`
-                              : `HORAS VENDIDAS ${anioCalendario}`
-                          }
-                          value={`${fmtHorasCurva(horasVendidas)} h`}
-                          subtitle={isBelowMd ? `P4+P3+P2 · ${anioCalendario}` : `Proyectos ${anioCalendario} · hrs P4+P3+P2`}
-                          topColor="#7c3aed"
-                        />
-                      </div>
-                      <div className={kpiDashboardSingleRowItemClassName}>
-                        <KpiCard
-                          compact
-                          label={
-                            isBelowMd ? "DIRECTAS GASTADAS MES" : "HORAS DIRECTAS GASTADAS DEL MES"
-                          }
-                          value={`${fmtHorasCurva(curvaChartPack.real.kpis.directasRealesMesActual)} h`}
-                          subtitle={
-                            isBelowMd
-                              ? "Reales del mes · P4+P3+P2"
-                              : "Reales registradas del mes · P4+P3+P2"
-                          }
-                          topColor="#c2410c"
-                        />
-                      </div>
-                      <div className={kpiDashboardSingleRowItemClassName}>
-                        <KpiCard
-                          compact
-                          label={isBelowMd ? "FALTANTE OBJ. MES" : "FALTANTE OBJETIVO MES"}
-                          value={faltanteValor}
-                          subtitle={
-                            faltanteMes.esSobreObjetivo
-                              ? isBelowMd
-                                ? "Sobre objetivo del mes"
-                                : "Sobre objetivo del mes (real > obj. ajustado)"
-                              : isBelowMd
-                                ? "Obj. ajustado − directas mes"
-                                : "Objetivo ajustado del mes − directas del mes"
-                          }
-                          topColor={faltanteMes.esSobreObjetivo ? "#047857" : "#B91C1C"}
-                        />
-                      </div>
-                      <div className={kpiDashboardSingleRowItemClassName}>
-                        <KpiCard
-                          compact
-                          label={isBelowMd ? "CARGABILIDAD ANUAL" : "CARGABILIDAD ANUAL"}
-                          value={
-                            curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD != null
-                              ? `${curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD.toFixed(1)}%`
-                              : "—"
-                          }
-                          subtitle={
-                            isBelowMd
-                              ? "Directas ÷ (directas + indirectas), sin vacaciones"
-                              : "Cargabilidad real = directas / (directas + indirectas), sin vacaciones."
-                          }
-                          topColor="#6366F1"
-                        />
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : null}
-            <div className="min-w-0 max-w-full rounded-r10 border border-bdr bg-surface px-4 py-3 shadow-sh1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-t400">
-                Curva objetivo anual · equipo
-              </p>
-              <p className="mt-1 text-[14px] font-semibold text-t900">
-                {curvaObjetivoAnualActual.nombre}{" "}
-                <span className="font-mono text-[12px] font-normal text-t500">({curvaObjetivoAnualActual.anio})</span>
-              </p>
-              <p className="mt-2 text-[12px] leading-relaxed text-t600 md:hidden">
-                <strong>Objetivo ajustado</strong> (violeta) = meta acumulada horas directas (curva × {factor}%; no es
-                cargabilidad real). <strong>Propuesta</strong> (azul) = P4+P3+P2. <strong>Real</strong> (naranja) =
-                DIRECTAS RegistroHora. Toca un mes para desglose.
-              </p>
-              {curvaExplicacionAbierta ? (
-                <p className="mt-2 text-[11px] leading-relaxed text-t500 md:hidden">
-                  La curva violeta no es el % de cargabilidad: es la meta de horas directas esperadas según la curva
-                  anual × factor. La propuesta suma P4+P3+P2 con prorrateo por día. El real se corta tras el último mes
-                  con carga. Cargabilidad real (KPI) = directas / (directas + indirectas), sin vacaciones.
-                </p>
-              ) : null}
-              <button
-                type="button"
-                className="mt-2 text-[11px] font-semibold text-copper underline-offset-2 hover:underline md:hidden"
-                onClick={() => setCurvaExplicacionAbierta((v) => !v)}
-              >
-                {curvaExplicacionAbierta ? "Ocultar explicación" : "Ver explicación"}
-              </button>
-              <p className="mt-2 hidden text-[12px] leading-relaxed text-t600 md:block">
-                <strong>Objetivo acumulado de horas directas ajustado al {factor}%</strong> (violeta): meta acumulada de
-                horas directas esperadas (curva anual guardada × factor seleccionado).{" "}
-                <strong>No representa el % de cargabilidad real.</strong>
-                <strong> Propuesta</strong> (azul, línea a trazos): suma entregables (hrs_p4+p3+p2), prorrateo lineal por
-                día entre fecha_inicio y fecha_termino, agregado por mes. <strong>Real</strong> (naranja): DIRECTAS desde
-                RegistroHora (prorrateadas por semana); se corta tras el último mes con carga. El KPI{" "}
-                <strong>cargabilidad real</strong> es aparte: directas / (directas + indirectas), sin vacaciones. Clic en
-                un mes del gráfico abre el desglose de propuesta. El 100% objetivo sigue en cálculo interno, no dibujado.
-              </p>
-            </div>
-            <div className="grid min-w-0 max-w-full gap-4 lg:grid-cols-2">
-              <div className="min-w-0 max-w-full overflow-hidden rounded-r12 border border-bdr bg-surface p-4 shadow-sh1 sm:p-5 lg:p-6">
-                <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-t400">
-                  Objetivo acumulado
-                </h3>
-                <p className="mb-2 text-[11px] leading-snug text-t500 md:hidden">
-                  Meta horas directas (ajuste {factor}%), propuesta y real. No confundir con cargabilidad real (%). Toca un
-                  mes para desglose.
-                </p>
-                <p className="mb-2 hidden text-[12px] text-t500 md:block">
-                  Objetivo acumulado de horas directas (ajuste {factor}%), propuesta acumulada y real (real cortado al
-                  último mes con carga). La curva violeta no es cargabilidad real. Clic en el gráfico: desglose propuesta
-                  del mes.
-                </p>
-                <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
-                  <ChartJsLineFrame
-                    key={isBelowMd ? "curva-acum-m" : "curva-acum-d"}
-                    data={curvaObjetivoAcumLineData}
-                    options={lineChartOptionsCurvaAcum}
-                    heightPx={isBelowMd ? 240 : 300}
-                  />
-                </div>
-              </div>
-              <div className="min-w-0 max-w-full overflow-hidden rounded-r12 border border-bdr bg-surface p-4 shadow-sh1 sm:p-5 lg:p-6">
-                <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-t400">
-                  Objetivo mensual
-                </h3>
-                <p className="mb-2 text-[11px] leading-snug text-t500 md:hidden">
-                  Meta mensual horas directas (ajuste {factor}%), propuesta y real. Toca un mes para desglose.
-                </p>
-                <p className="mb-2 hidden text-[12px] text-t500 md:block">
-                  Objetivo mensual de horas directas (ajuste {factor}%), propuesta mensual y real (propuesta año completo;
-                  real cortado al último mes con carga). La serie violeta no es el % de cargabilidad real. Clic: desglose.
-                </p>
-                <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
-                  <ChartJsLineFrame
-                    key={isBelowMd ? "curva-mens-m" : "curva-mens-d"}
-                    data={curvaObjetivoMensualLineData}
-                    options={lineChartOptionsCurvaMensual}
-                    heightPx={isBelowMd ? 240 : 300}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {curvaChartPack && propuestaDetalleMesIdx != null ? (
-              <div
-                className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
-                role="presentation"
-                onClick={() => setPropuestaDetalleMesIdx(null)}
-              >
-                <div
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="propuesta-detalle-titulo"
-                  className="max-h-[85vh] w-full max-w-[640px] overflow-hidden rounded-r12 border border-bdr bg-surface shadow-sh2"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between border-b border-bdr px-4 py-3">
-                    <h2 id="propuesta-detalle-titulo" className="text-[14px] font-semibold text-t900">
-                      Desglose propuesta (P4+P3+P2) ·{" "}
-                      {curvaChartPack.obj.labels[propuestaDetalleMesIdx] ?? `Mes ${propuestaDetalleMesIdx + 1}`}
-                    </h2>
-                    <button
-                      type="button"
-                      className="rounded-r6 border border-bdr px-3 py-1.5 text-[11px] font-semibold text-t700 hover:bg-surface2"
-                      onClick={() => setPropuestaDetalleMesIdx(null)}
-                    >
-                      Cerrar
-                    </button>
-                  </div>
-                  <div className="max-h-[calc(85vh-56px)] overflow-auto p-4">
-                    <p className="mb-3 text-[11px] text-t500">
-                      Horas prorrateadas linealmente por día calendario en este mes (solo entregables con fechas válidas
-                      y horas P4+P3+P2 &gt; 0).
-                    </p>
-                    {curvaChartPack.propuesta.detallePorMes[propuestaDetalleMesIdx]?.length ? (
-                      <table className="w-full border-collapse text-left text-[12px]">
-                        <thead>
-                          <tr className="border-b border-bdr text-[10px] font-semibold uppercase text-t400">
-                            <th className="py-2 pr-2">Proyecto</th>
-                            <th className="py-2 pr-2">Entregable</th>
-                            <th className="py-2 text-right">Horas</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {curvaChartPack.propuesta.detallePorMes[propuestaDetalleMesIdx].map((row) => (
-                            <tr key={row.entregableId} className="border-b border-bdr/80">
-                              <td className="py-2 pr-2 text-t700">{row.proyectoNombre}</td>
-                              <td className="py-2 pr-2 text-t800">{row.entregableNombre}</td>
-                              <td className="py-2 text-right font-mono text-t600">{fmtHorasCurva(row.horas)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <p className="text-[13px] text-t500">Ningún entregable aporta horas de propuesta en este mes.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-
-      {/* ── Section 2: Control de Proyectos · seguimiento operativo ── */}
-      <section className="min-w-0 max-w-full overflow-x-hidden">
-        <SectionHeader
-          number="02"
           title="Control de Proyectos · Gestión de Crisis"
-          hint="Seguimiento operativo agrupado por cliente y proyecto. Por defecto: en control (incluye inicio alcanzado aunque siga No Iniciado; excluye completados antiguos y cancelados)."
+          hint="Seguimiento de entregables que requieren control. Por defecto: en control (incluye inicio alcanzado aunque siga No Iniciado; excluye completados antiguos y cancelados)."
         />
 
         <div className="mb-4 hidden flex-wrap items-start justify-end gap-3 md:flex">
@@ -1658,6 +1343,343 @@ export default function Home() {
             });
           }}
         />
+      </section>
+
+      {/* ── Tendencia del equipo (colapsable) ── */}
+      <section className="min-w-0 max-w-full overflow-x-hidden">
+        <SectionHeader
+          number="02"
+          title="Tendencia del equipo"
+          hint="Objetivo, carga vendida y horas reales del equipo."
+          actions={
+            <button
+              type="button"
+              className="inline-flex h-9 items-center gap-1.5 rounded-r8 border border-bdr bg-white px-3 text-[12px] font-semibold text-t700 shadow-xs hover:bg-surface2"
+              aria-expanded={tendenciaAbierta}
+              onClick={() => setTendenciaAbierta((v) => !v)}
+            >
+              {tendenciaAbierta ? (
+                <ChevronDown className="h-4 w-4 shrink-0" />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0" />
+              )}
+              {tendenciaAbierta ? "Ocultar tendencia" : "Mostrar tendencia"}
+            </button>
+          }
+        />
+        {tendenciaAbierta ? (
+          <>
+            <p className="mb-3 text-[11px] text-t500">
+              {isBelowMd
+                ? `Actualizado ${nowStrCorto}`
+                : `Última actualización: ${nowStr} · CurvaObjetivoAnual + real RegistroHora + propuesta P4+P3+P2 (solo lectura)`}
+            </p>
+
+        <div className="mb-4 flex flex-col gap-3 rounded-r12 border border-bdr bg-surface px-4 py-3 shadow-sh1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 sm:px-5 sm:py-4">
+          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-t400">
+            Factor de ajuste del objetivo
+          </span>
+          <div className="flex min-w-0 w-full items-center gap-3 sm:min-w-[120px] sm:flex-1">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={factor}
+              onChange={(e) => setFactor(Number(e.target.value))}
+              className="h-[6px] min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-surface2 accent-copper"
+            />
+            <span className="shrink-0 min-w-[40px] text-right font-sans text-[1.05rem] font-semibold tabular-nums text-copper sm:text-[1.15rem]">
+              {factor}%
+            </span>
+          </div>
+          <span className="min-w-0 text-[11px] leading-snug text-t300 md:hidden">
+            Multiplica la curva anual de <strong>horas directas esperadas</strong> (no es cargabilidad real). La curva
+            real viene de RegistroHora (DIRECTAS).
+          </span>
+          <span className="hidden min-w-0 text-[11px] text-t300 md:inline">
+            Recalcula en pantalla la <strong>meta de horas directas</strong> (curva anual × factor); no es el % de
+            cargabilidad real. La curva <strong>real</strong> viene de RegistroHora (DIRECTAS · prorrateadas por semana).
+            No modifica la curva objetivo guardada.
+          </span>
+        </div>
+
+        {/* Bloque Dashboard 1: solo CurvaObjetivoAnual (lectura; ajuste no persiste) */}
+        {!curvaObjetivoAnualActual ? (
+          <div className="mb-4 rounded-r12 border border-amber-500/45 bg-amber-500/10 px-4 py-4 text-[13px] text-t800 shadow-sh1">
+            <p className="font-semibold text-amber-950">No existe Curva Objetivo Anual para {anioCalendario}</p>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-t700">
+              Crea la curva del año en curso en <strong>Formularios → Curva objetivo anual</strong>. Esta sección usa
+              únicamente esa fuente para la meta de equipo al 100% y la vista ajustada por factor (%), sin escribir en
+              los datos guardados.
+            </p>
+          </div>
+        ) : curvaObjetivoDashboard ? (
+          <div className="mb-6 space-y-4">
+            {curvaChartPack ? (
+              <div className="space-y-3">
+                {curvaChartPack.propuesta.exclusiones.totalEntregables -
+                  curvaChartPack.propuesta.exclusiones.incluidos >
+                0 ? (
+                  <div className="rounded-r8 border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-t800">
+                    <p className="font-semibold text-amber-950">
+                      {curvaChartPack.propuesta.exclusiones.totalEntregables -
+                        curvaChartPack.propuesta.exclusiones.incluidos}{" "}
+                      entregables excluidos de la curva de propuesta
+                    </p>
+                    <p className="mt-1 text-[11px] leading-snug text-t600 md:mt-0 md:inline">
+                      <span className="md:hidden">
+                        Fechas inválidas: {curvaChartPack.propuesta.exclusiones.porFechasInvalidasOVacias} · término
+                        &lt; inicio: {curvaChartPack.propuesta.exclusiones.porTerminoAntesQueInicio} · sin horas:{" "}
+                        {curvaChartPack.propuesta.exclusiones.porHorasNoPositivas}
+                      </span>
+                      <span className="hidden md:inline">
+                        {" "}
+                        · fechas vacías o inválidas: {curvaChartPack.propuesta.exclusiones.porFechasInvalidasOVacias} ·
+                        término &lt; inicio: {curvaChartPack.propuesta.exclusiones.porTerminoAntesQueInicio} · sin horas
+                        P4+P3+P2 &gt; 0: {curvaChartPack.propuesta.exclusiones.porHorasNoPositivas}
+                      </span>
+                    </p>
+                  </div>
+                ) : null}
+                {(() => {
+                  const horasVendidas = horasVendidasProyectosAnio(
+                    data.entregables,
+                    data.proyectos,
+                    anioCalendario,
+                  );
+                  const faltanteMes = faltanteVsObjetivoAjustadoMesDisplay(
+                    curvaObjetivoDashboard.kpis.objetivoMesActualAjustado,
+                    curvaChartPack.real.kpis.directasRealesMesActual,
+                  );
+                  const faltanteValor = faltanteMes.esSobreObjetivo
+                    ? `+${fmtHorasCurva(Math.abs(faltanteMes.valorHoras))} h`
+                    : `${fmtHorasCurva(faltanteMes.valorHoras)} h`;
+                  return (
+                    <div className={kpiDashboardSingleRowClassName}>
+                      <div className={kpiDashboardSingleRowItemClassName}>
+                        <KpiCard
+                          compact
+                          label="OBJETIVO ANUAL AJUSTADO"
+                          value={`${fmtHorasCurva(curvaObjetivoDashboard.kpis.objetivoAnualAjustado)} h`}
+                          subtitle={
+                            isBelowMd
+                              ? `Curva anual × ${factor}%`
+                              : `Meta anual horas directas · curva × ${factor}% (no es cargabilidad real)`
+                          }
+                          topColor="#4f46e5"
+                        />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
+                        <KpiCard
+                          compact
+                          label={
+                            isBelowMd
+                              ? `HORAS VENDIDAS ${anioCalendario}`
+                              : `HORAS VENDIDAS ${anioCalendario}`
+                          }
+                          value={`${fmtHorasCurva(horasVendidas)} h`}
+                          subtitle={isBelowMd ? `P4+P3+P2 · ${anioCalendario}` : `Proyectos ${anioCalendario} · hrs P4+P3+P2`}
+                          topColor="#7c3aed"
+                        />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
+                        <KpiCard
+                          compact
+                          label={
+                            isBelowMd ? "DIRECTAS GASTADAS MES" : "HORAS DIRECTAS GASTADAS DEL MES"
+                          }
+                          value={`${fmtHorasCurva(curvaChartPack.real.kpis.directasRealesMesActual)} h`}
+                          subtitle={
+                            isBelowMd
+                              ? "Reales del mes · P4+P3+P2"
+                              : "Reales registradas del mes · P4+P3+P2"
+                          }
+                          topColor="#c2410c"
+                        />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
+                        <KpiCard
+                          compact
+                          label={isBelowMd ? "FALTANTE OBJ. MES" : "FALTANTE OBJETIVO MES"}
+                          value={faltanteValor}
+                          subtitle={
+                            faltanteMes.esSobreObjetivo
+                              ? isBelowMd
+                                ? "Sobre objetivo del mes"
+                                : "Sobre objetivo del mes (real > obj. ajustado)"
+                              : isBelowMd
+                                ? "Obj. ajustado − directas mes"
+                                : "Objetivo ajustado del mes − directas del mes"
+                          }
+                          topColor={faltanteMes.esSobreObjetivo ? "#047857" : "#B91C1C"}
+                        />
+                      </div>
+                      <div className={kpiDashboardSingleRowItemClassName}>
+                        <KpiCard
+                          compact
+                          label={isBelowMd ? "CARGABILIDAD ANUAL" : "CARGABILIDAD ANUAL"}
+                          value={
+                            curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD != null
+                              ? `${curvaChartPack.real.kpis.pctCargabilidadAreaAcumYTD.toFixed(1)}%`
+                              : "—"
+                          }
+                          subtitle={
+                            isBelowMd
+                              ? "Directas ÷ (directas + indirectas), sin vacaciones"
+                              : "Cargabilidad real = directas / (directas + indirectas), sin vacaciones."
+                          }
+                          topColor="#6366F1"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : null}
+            <div className="min-w-0 max-w-full rounded-r10 border border-bdr bg-surface px-4 py-3 shadow-sh1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-t400">
+                Curva objetivo anual · equipo
+              </p>
+              <p className="mt-1 text-[14px] font-semibold text-t900">
+                {curvaObjetivoAnualActual.nombre}{" "}
+                <span className="font-mono text-[12px] font-normal text-t500">({curvaObjetivoAnualActual.anio})</span>
+              </p>
+              <p className="mt-2 text-[12px] leading-relaxed text-t600 md:hidden">
+                <strong>Objetivo ajustado</strong> (violeta) = meta acumulada horas directas (curva × {factor}%; no es
+                cargabilidad real). <strong>Propuesta</strong> (azul) = P4+P3+P2. <strong>Real</strong> (naranja) =
+                DIRECTAS RegistroHora. Toca un mes para desglose.
+              </p>
+              {curvaExplicacionAbierta ? (
+                <p className="mt-2 text-[11px] leading-relaxed text-t500 md:hidden">
+                  La curva violeta no es el % de cargabilidad: es la meta de horas directas esperadas según la curva
+                  anual × factor. La propuesta suma P4+P3+P2 con prorrateo por día. El real se corta tras el último mes
+                  con carga. Cargabilidad real (KPI) = directas / (directas + indirectas), sin vacaciones.
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className="mt-2 text-[11px] font-semibold text-copper underline-offset-2 hover:underline md:hidden"
+                onClick={() => setCurvaExplicacionAbierta((v) => !v)}
+              >
+                {curvaExplicacionAbierta ? "Ocultar explicación" : "Ver explicación"}
+              </button>
+              <p className="mt-2 hidden text-[12px] leading-relaxed text-t600 md:block">
+                <strong>Objetivo acumulado de horas directas ajustado al {factor}%</strong> (violeta): meta acumulada de
+                horas directas esperadas (curva anual guardada × factor seleccionado).{" "}
+                <strong>No representa el % de cargabilidad real.</strong>
+                <strong> Propuesta</strong> (azul, línea a trazos): suma entregables (hrs_p4+p3+p2), prorrateo lineal por
+                día entre fecha_inicio y fecha_termino, agregado por mes. <strong>Real</strong> (naranja): DIRECTAS desde
+                RegistroHora (prorrateadas por semana); se corta tras el último mes con carga. El KPI{" "}
+                <strong>cargabilidad real</strong> es aparte: directas / (directas + indirectas), sin vacaciones. Clic en
+                un mes del gráfico abre el desglose de propuesta. El 100% objetivo sigue en cálculo interno, no dibujado.
+              </p>
+            </div>
+            <div className="grid min-w-0 max-w-full gap-4 lg:grid-cols-2">
+              <div className="min-w-0 max-w-full overflow-hidden rounded-r12 border border-bdr bg-surface p-4 shadow-sh1 sm:p-5 lg:p-6">
+                <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-t400">
+                  Objetivo acumulado
+                </h3>
+                <p className="mb-2 text-[11px] leading-snug text-t500 md:hidden">
+                  Meta horas directas (ajuste {factor}%), propuesta y real. No confundir con cargabilidad real (%). Toca un
+                  mes para desglose.
+                </p>
+                <p className="mb-2 hidden text-[12px] text-t500 md:block">
+                  Objetivo acumulado de horas directas (ajuste {factor}%), propuesta acumulada y real (real cortado al
+                  último mes con carga). La curva violeta no es cargabilidad real. Clic en el gráfico: desglose propuesta
+                  del mes.
+                </p>
+                <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
+                  <ChartJsLineFrame
+                    key={isBelowMd ? "curva-acum-m" : "curva-acum-d"}
+                    data={curvaObjetivoAcumLineData}
+                    options={lineChartOptionsCurvaAcum}
+                    heightPx={isBelowMd ? 240 : 300}
+                  />
+                </div>
+              </div>
+              <div className="min-w-0 max-w-full overflow-hidden rounded-r12 border border-bdr bg-surface p-4 shadow-sh1 sm:p-5 lg:p-6">
+                <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-t400">
+                  Objetivo mensual
+                </h3>
+                <p className="mb-2 text-[11px] leading-snug text-t500 md:hidden">
+                  Meta mensual horas directas (ajuste {factor}%), propuesta y real. Toca un mes para desglose.
+                </p>
+                <p className="mb-2 hidden text-[12px] text-t500 md:block">
+                  Objetivo mensual de horas directas (ajuste {factor}%), propuesta mensual y real (propuesta año completo;
+                  real cortado al último mes con carga). La serie violeta no es el % de cargabilidad real. Clic: desglose.
+                </p>
+                <div className="relative mx-auto w-full max-w-full min-w-0 overflow-x-auto">
+                  <ChartJsLineFrame
+                    key={isBelowMd ? "curva-mens-m" : "curva-mens-d"}
+                    data={curvaObjetivoMensualLineData}
+                    options={lineChartOptionsCurvaMensual}
+                    heightPx={isBelowMd ? 240 : 300}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {curvaChartPack && propuestaDetalleMesIdx != null ? (
+              <div
+                className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+                role="presentation"
+                onClick={() => setPropuestaDetalleMesIdx(null)}
+              >
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="propuesta-detalle-titulo"
+                  className="max-h-[85vh] w-full max-w-[640px] overflow-hidden rounded-r12 border border-bdr bg-surface shadow-sh2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-bdr px-4 py-3">
+                    <h2 id="propuesta-detalle-titulo" className="text-[14px] font-semibold text-t900">
+                      Desglose propuesta (P4+P3+P2) ·{" "}
+                      {curvaChartPack.obj.labels[propuestaDetalleMesIdx] ?? `Mes ${propuestaDetalleMesIdx + 1}`}
+                    </h2>
+                    <button
+                      type="button"
+                      className="rounded-r6 border border-bdr px-3 py-1.5 text-[11px] font-semibold text-t700 hover:bg-surface2"
+                      onClick={() => setPropuestaDetalleMesIdx(null)}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  <div className="max-h-[calc(85vh-56px)] overflow-auto p-4">
+                    <p className="mb-3 text-[11px] text-t500">
+                      Horas prorrateadas linealmente por día calendario en este mes (solo entregables con fechas válidas
+                      y horas P4+P3+P2 &gt; 0).
+                    </p>
+                    {curvaChartPack.propuesta.detallePorMes[propuestaDetalleMesIdx]?.length ? (
+                      <table className="w-full border-collapse text-left text-[12px]">
+                        <thead>
+                          <tr className="border-b border-bdr text-[10px] font-semibold uppercase text-t400">
+                            <th className="py-2 pr-2">Proyecto</th>
+                            <th className="py-2 pr-2">Entregable</th>
+                            <th className="py-2 text-right">Horas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {curvaChartPack.propuesta.detallePorMes[propuestaDetalleMesIdx].map((row) => (
+                            <tr key={row.entregableId} className="border-b border-bdr/80">
+                              <td className="py-2 pr-2 text-t700">{row.proyectoNombre}</td>
+                              <td className="py-2 pr-2 text-t800">{row.entregableNombre}</td>
+                              <td className="py-2 text-right font-mono text-t600">{fmtHorasCurva(row.horas)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="text-[13px] text-t500">Ningún entregable aporta horas de propuesta en este mes.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+          </>
+        ) : null}
       </section>
 
       {crearEntregableProyecto ? (
