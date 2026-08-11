@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, X, Clock, FileEdit, StickyNote, LayoutList } from "lucide-react";
+import { ChevronDown, Clock, FileEdit, StickyNote } from "lucide-react";
 import { useNavigate } from "react-router";
 import SectionHeader from "@/components/SectionHeader";
 import FilterBar from "@/components/FilterBar";
@@ -14,8 +14,7 @@ import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedis
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
 import EntregableCancelarModal from "@/components/EntregableCancelarModal";
 import EntregablePausarModal from "@/components/EntregablePausarModal";
-import EquipoEntregableSection from "@/components/EquipoEntregableSection";
-import EntregableFechasSection from "@/components/proyectos/EntregableFechasSection";
+import EntregableTrabajoModal from "@/components/proyectos/EntregableTrabajoModal";
 import { useAppData, type Profesional, type PmInterno } from "@/context/AppDataContext";
 import { useAuth } from "@/security/AuthContext";
 import {
@@ -53,7 +52,6 @@ import {
 import {
   claseBadgeAlertaActiva,
   entregableTieneAlertasActivas,
-  lineasDetalleAlertaDeficitCategoria,
   TOLERANCIA_GASTO_VS_AVANCE_PUNTOS,
   type AlertaActiva,
 } from "@/alertas/alertasActivas";
@@ -1139,337 +1137,33 @@ export default function Proyectos() {
         </div>
       )}
 
-      <AnimatePresence>
-        {drawerRowLive ? (
-          <>
-            <motion.button
-              type="button"
-              aria-label="Cerrar panel"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] bg-black/25 backdrop-blur-[1px]"
-              onClick={() => setDrawerRow(null)}
-            />
-            <motion.aside
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 28, stiffness: 320 }}
-              className="fixed inset-0 z-[210] flex flex-col bg-surface shadow-2xl md:inset-y-0 md:left-auto md:right-0 md:w-full md:max-w-lg md:border-l md:border-bdr"
-            >
-              <div className="flex items-start justify-between gap-2 border-b border-bdr px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-t400">Entregable</p>
-                  <h2 className="mt-0.5 font-sans text-[16px] font-semibold leading-snug text-t900">
-                    {drawerRowLive.entregable.nombre}
-                  </h2>
-                  <p className="mt-1 text-[11px] text-t500">
-                    {drawerRowLive.cliente.nombre} · {drawerRowLive.proyecto.codigo} {drawerRowLive.proyecto.nombre}
-                  </p>
-                </div>
-                <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={() => setDrawerRow(null)}>
-                  <X size={18} />
-                </Button>
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 text-[12px] md:pb-3">
-                <div className="rounded-r10 border border-bdr bg-white/80 p-3">
-                  <p className="text-[10px] font-semibold uppercase text-t400">Resumen</p>
-                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
-                    <dt className="text-t500">Fase / código</dt>
-                    <dd className="text-t800">
-                      {[drawerRowLive.entregable.fase_codigo, drawerRowLive.entregable.tarea_codigo].filter(Boolean).join(" · ") || "—"}
-                    </dd>
-                    <dt className="text-t500">PM</dt>
-                    <dd className="text-t800">
-                      {(drawerRowLive.proyecto.pm_interno_id && pmMap.get(drawerRowLive.proyecto.pm_interno_id)?.nombre) ||
-                        drawerRowLive.proyecto.pm_nombre ||
-                        "—"}
-                    </dd>
-                    <dt className="text-t500">Líder</dt>
-                    <dd className="text-t800">{profMap.get(drawerRowLive.entregable.lider_id)?.nombre_completo ?? "—"}</dd>
-                    <dt className="text-t500">Estado</dt>
-                    <dd className="flex flex-wrap items-center gap-1.5">
-                      <StatusPill
-                        variant={entregableEstadoToStatusVariant(String(drawerRowLive.entregable.estado))}
-                        labelOverride={String(drawerRowLive.entregable.estado)}
-                      />
-                      {entregableEstaCancelado(drawerRowLive.entregable) ? (
-                        <span className="rounded-r4 bg-slate-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                          Cancelado
-                        </span>
-                      ) : null}
-                      {entregableEstaPausado(drawerRowLive.entregable) ? (
-                        <span className="rounded-r4 bg-sky-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                          Pausado
-                        </span>
-                      ) : null}
-                    </dd>
-                    {entregableEstaCancelado(drawerRowLive.entregable) ? (
-                      <>
-                        <dt className="text-t500">Fecha cancelación</dt>
-                        <dd className="text-t800">{fmtDate(drawerRowLive.entregable.fecha_cancelacion ?? null)}</dd>
-                        <dt className="text-t500">Motivo cancelación</dt>
-                        <dd className="text-t800">{drawerRowLive.entregable.motivo_cancelacion?.trim() || "—"}</dd>
-                      </>
-                    ) : null}
-                    {entregableEstaPausado(drawerRowLive.entregable) ? (
-                      <>
-                        <dt className="text-t500">Fecha de pausa</dt>
-                        <dd className="text-t800">{fmtDate(drawerRowLive.entregable.fecha_pausa ?? null)}</dd>
-                        <dt className="text-t500">Motivo de pausa</dt>
-                        <dd className="text-t800">{drawerRowLive.entregable.motivo_pausa?.trim() || "—"}</dd>
-                        <dt className="text-t500">Reinicio tentativo</dt>
-                        <dd className="text-t800">
-                          {drawerRowLive.entregable.fecha_reinicio_tentativa
-                            ? fmtDate(drawerRowLive.entregable.fecha_reinicio_tentativa)
-                            : "Sin programación"}
-                        </dd>
-                        <dt className="text-t500">Término tentativo</dt>
-                        <dd className="text-t800">
-                          {drawerRowLive.entregable.fecha_termino_tentativa
-                            ? fmtDate(drawerRowLive.entregable.fecha_termino_tentativa)
-                            : "Sin programación"}
-                        </dd>
-                      </>
-                    ) : null}
-                    <dt className="text-t500">Fechas</dt>
-                    <dd className="text-t800">
-                      {fmtDate(drawerRowLive.entregable.fecha_inicio)} → {fmtDate(drawerRowLive.entregable.fecha_termino)}
-                    </dd>
-                    <dt className="text-t500">Revisiones A/B/P</dt>
-                    <dd className="text-t800">
-                      {fmtDate(drawerRowLive.entregable.fecha_revA)} · {fmtDate(drawerRowLive.entregable.fecha_revB)} ·{" "}
-                      {fmtDate(drawerRowLive.entregable.fecha_revP)}
-                    </dd>
-                    <dt className="text-t500">UF presup. / gasto</dt>
-                    <dd className="tabular-nums text-t800">
-                      {fmtUF(drawerRowLive.ufPresup)} / {fmtUF(drawerRowLive.ufGasto)}
-                    </dd>
-                    <dt className="text-t500">Horas presup. / gasto</dt>
-                    <dd className="min-w-0 space-y-1.5">
-                      <div className="tabular-nums text-t800">
-                        {fmtH(drawerRowLive.horasPresupuesto)} / {fmtH(drawerRowLive.horasGastadas)}
-                      </div>
-                      <table className="w-full border-collapse rounded-r6 border border-bdr/80 text-[10px]">
-                        <thead>
-                          <tr className="border-b border-bdr bg-slate-50/90 text-[9px] font-semibold uppercase text-t500">
-                            <th className="px-1.5 py-1 text-left">Cat.</th>
-                            <th className="px-1.5 py-1 text-right">Presup.</th>
-                            <th className="px-1.5 py-1 text-right">Gasto</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {drawerRowLive.horasPorCategoria.map((fila) => (
-                            <tr key={fila.categoria} className="border-b border-bdr/50 last:border-b-0">
-                              <td className="px-1.5 py-1 font-medium text-t700">{fila.categoria}</td>
-                              <td className="px-1.5 py-1 text-right tabular-nums text-t800">{fmtH(fila.horasPresupuesto)}</td>
-                              <td className="px-1.5 py-1 text-right tabular-nums text-t800">{fmtH(fila.horasGastadas)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </dd>
-                    <dt className="text-t500">Saldo horas</dt>
-                    <dd className={`tabular-nums ${drawerRowLive.saldoHoras < 0 ? "font-semibold text-rose-700" : "text-t800"}`}>
-                      {fmtH(drawerRowLive.saldoHoras)}
-                      <span className="mt-0.5 block text-[10px] font-normal text-t500">
-                        Presupuesto − gasto (no es consumo)
-                      </span>
-                    </dd>
-                    {entregableEstaCancelado(drawerRowLive.entregable) ? (
-                      <>
-                        <dt className="text-t500">Saldo anulado</dt>
-                        <dd className="tabular-nums font-semibold text-slate-800">
-                          {fmtH(
-                            calcularSaldoAnuladoHoras(
-                              drawerRowLive.horasPresupuesto,
-                              drawerRowLive.horasGastadas,
-                            ),
-                          )}
-                          <span className="mt-0.5 block text-[10px] font-normal text-t500">
-                            No proyectable · no suma a gasto real
-                          </span>
-                        </dd>
-                      </>
-                    ) : null}
-                    <dt className="text-t500">Alertas activas</dt>
-                    <dd>
-                      {drawerRowLive.alertasActivas.length > 0 ? (
-                        <>
-                          <BadgesAlertasActivas
-                            alertas={drawerRowLive.alertasActivas}
-                            className="text-[9px] [&_span]:text-[9px] [&_span]:font-bold [&_span]:uppercase"
-                          />
-                          {(() => {
-                            const deficit = drawerRowLive.alertasActivas.find(
-                              (a) => a.tipo === "SOBRECONSUMO_CATEGORIA",
-                            );
-                            const lineas = deficit ? lineasDetalleAlertaDeficitCategoria(deficit) : [];
-                            if (lineas.length === 0) return null;
-                            return (
-                              <ul className="mt-2 list-inside list-disc space-y-0.5 text-[10px] text-rose-900/90">
-                                {lineas.map((ln) => (
-                                  <li key={ln}>{ln}</li>
-                                ))}
-                              </ul>
-                            );
-                          })()}
-                        </>
-                      ) : (
-                        <span className="text-t500">Ninguna</span>
-                      )}
-                      {drawerRowLive.redistribuido ? (
-                        <p className="mt-1.5 text-[9px] text-teal-800">
-                          <span className="rounded-r4 bg-teal-500/15 px-1.5 py-0.5 font-bold uppercase">
-                            Redistribuido
-                          </span>{" "}
-                          (histórico; no es alerta activa)
-                        </p>
-                      ) : null}
-                    </dd>
-                  </dl>
-                  {drawerRowLive.entregable.nota_seguimiento ? (
-                    <p className="mt-3 rounded-r8 border border-bdr/80 bg-amber-50/50 p-2 text-[11px] text-t700">
-                      <span className="font-semibold text-t600">Nota: </span>
-                      {drawerRowLive.entregable.nota_seguimiento}
-                    </p>
-                  ) : null}
-                </div>
-
-                <EntregableFechasSection
-                  entregable={drawerRowLive.entregable}
-                  puedeEditar={puedeEditarEntregableFechas}
-                />
-
-                <EquipoEntregableSection entregable={drawerRowLive.entregable} puedeEditar={puedeGestionarEquipo} />
-
-                <div className="mt-4">
-                  <p className="text-[10px] font-semibold uppercase text-t400">Historial redistribuciones</p>
-                  {historialDrawer.length === 0 ? (
-                    <p className="mt-1 text-[11px] text-t500">Sin movimientos registrados.</p>
-                  ) : (
-                    <ul className="mt-2 space-y-2">
-                      {historialDrawer.map((h) => (
-                        <li key={h.id} className="rounded-r8 border border-bdr bg-white/90 p-2 text-[11px]">
-                          <div className="flex flex-wrap justify-between gap-1 font-semibold text-t800">
-                            <span>{fmtDate(h.fecha)}</span>
-                            <span className="tabular-nums text-t600">
-                              ΔUF {h.diferencia_uf >= 0 ? "+" : ""}
-                              {fmtUF(h.diferencia_uf)}
-                            </span>
-                          </div>
-                          {h.comentario ? <p className="mt-1 text-t600">{h.comentario}</p> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-bdr pt-3 pb-2">
-                  {puedeVerHoras ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => goGestionHorasEntregable(drawerRowLive.entregable.id)}
-                    >
-                      <Clock size={14} /> Gestión de Horas
-                    </Button>
-                  ) : null}
-                  {puedeEditarNotas ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => setNotaEnt(drawerRowLive)}
-                    >
-                      <StickyNote size={14} /> {puedeEditarNotas ? "Nota" : "Ver nota"}
-                    </Button>
-                  ) : null}
-                  {puedeVerFormularios ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() =>
-                        navigate(
-                          `/formularios?entity=entregables&focus=${encodeURIComponent(drawerRowLive.entregable.id)}`,
-                        )
-                      }
-                    >
-                      <LayoutList size={14} /> Detalle formulario
-                    </Button>
-                  ) : null}
-                  {puedeCancelarEntregable &&
-                  !entregableEstaCancelado(drawerRowLive.entregable) &&
-                  !entregableEstaPausado(drawerRowLive.entregable) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 border-sky-200 text-[11px] text-sky-900 md:min-h-0"
-                      onClick={() => setPausarEnt(drawerRowLive)}
-                    >
-                      Poner en pausa
-                    </Button>
-                  ) : null}
-                  {puedeCancelarEntregable && entregableEstaPausado(drawerRowLive.entregable) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 border-sky-200 text-[11px] text-sky-900 md:min-h-0"
-                      onClick={() => setPausarEnt(drawerRowLive)}
-                    >
-                      Editar pausa
-                    </Button>
-                  ) : null}
-                  {puedeCancelarEntregable && entregableEstaPausado(drawerRowLive.entregable) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => reactivarPausaEntregable(drawerRowLive.entregable.id)}
-                    >
-                      Reactivar entregable
-                    </Button>
-                  ) : null}
-                  {puedeCancelarEntregable && !entregableEstaCancelado(drawerRowLive.entregable) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 border-rose-200 text-[11px] text-rose-800 md:min-h-0"
-                      onClick={() => setCancelarEnt(drawerRowLive)}
-                    >
-                      Cancelar entregable
-                    </Button>
-                  ) : null}
-                  {puedeCancelarEntregable && entregableEstaCancelado(drawerRowLive.entregable) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
-                      onClick={() => reactivarEntregable(drawerRowLive.entregable.id)}
-                    >
-                      Reactivar entregable
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="mt-2">
-                  <EntregableRedistribuirHorasTrigger ent={drawerRowLive.entregable} />
-                </div>
-              </div>
-            </motion.aside>
-          </>
-        ) : null}
-      </AnimatePresence>
+      {drawerRowLive ? (
+        <EntregableTrabajoModal
+          row={drawerRowLive}
+          pmMap={pmMap}
+          profMap={profMap}
+          historial={historialDrawer}
+          secondaryOpen={notaEnt != null || cancelarEnt != null || pausarEnt != null}
+          puedeVerHoras={puedeVerHoras}
+          puedeVerFormularios={puedeVerFormularios}
+          puedeEditarNotas={puedeEditarNotas}
+          puedeGestionarEquipo={puedeGestionarEquipo}
+          puedeEditarEntregableFechas={puedeEditarEntregableFechas}
+          puedeCancelarEntregable={puedeCancelarEntregable}
+          onClose={() => setDrawerRow(null)}
+          onGestionHoras={goGestionHorasEntregable}
+          onAbrirNota={() => setNotaEnt(drawerRowLive)}
+          onDetalleFormulario={() =>
+            navigate(
+              `/formularios?entity=entregables&focus=${encodeURIComponent(drawerRowLive.entregable.id)}`,
+            )
+          }
+          onAbrirPausa={() => setPausarEnt(drawerRowLive)}
+          onReactivarPausa={() => reactivarPausaEntregable(drawerRowLive.entregable.id)}
+          onAbrirCancelar={() => setCancelarEnt(drawerRowLive)}
+          onReactivarCancelacion={() => reactivarEntregable(drawerRowLive.entregable.id)}
+        />
+      ) : null}
 
       <EntregableNotaSeguimientoModal
         open={notaEnt != null}

@@ -40,7 +40,7 @@ export default function EntregableNotaSeguimientoModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[230] flex items-center justify-center bg-black/45 p-4"
       role="presentation"
       onClick={onClose}
     >

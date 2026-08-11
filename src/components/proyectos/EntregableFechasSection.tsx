@@ -9,9 +9,15 @@ import { formatDateForDisplay } from "@/lib/localDate";
 type Props = {
   entregable: Entregable;
   puedeEditar: boolean;
+  /** Layout más ancho para modal de trabajo (solo clases). */
+  compactHeader?: boolean;
 };
 
-export default function EntregableFechasSection({ entregable, puedeEditar }: Props) {
+export default function EntregableFechasSection({
+  entregable,
+  puedeEditar,
+  compactHeader = false,
+}: Props) {
   const [editing, setEditing] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const { draft, error, conRevisiones, resetDraft, handleDraftChange, guardar } =
@@ -34,24 +40,24 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
   };
 
   return (
-    <div className="mt-4 rounded-r10 border border-bdr bg-white/80 p-3">
-      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-t400">
-        <Calendar size={14} /> Fechas del entregable
+    <div className={`rounded-r10 border border-bdr bg-white p-4 ${compactHeader ? "" : "mt-4"}`}>
+      <p className="flex items-center gap-1.5 text-[12px] font-semibold text-t800">
+        <Calendar size={15} /> Programación oficial
       </p>
-      <p className="mt-1 text-[10px] leading-snug text-t500">
+      <p className="mt-1 text-[12px] leading-snug text-t500">
         Estos cambios actualizan el entregable y se reflejan en Formularios, Dashboard y Gantt.
       </p>
-      <p className="mt-0.5 text-[10px] text-t400">
+      <p className="mt-0.5 text-[11px] text-t400">
         Flujo: {conRevisiones ? "Con revisiones (A / B / P)" : "Sin revisiones (Rev.P = término)"}
       </p>
 
       {savedOk && !editing ? (
-        <p className="mt-2 rounded-r6 border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-900">
+        <p className="mt-2 rounded-r6 border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[12px] text-emerald-900">
           Fechas guardadas correctamente.
         </p>
       ) : null}
       {error ? (
-        <p className="mt-2 rounded-r6 border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-900">
+        <p className="mt-2 rounded-r6 border border-rose-200 bg-rose-50 px-2 py-1.5 text-[12px] text-rose-900">
           {error}
         </p>
       ) : null}
@@ -61,24 +67,26 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
           <EntregableFechasFormFields draft={draft} conRevisiones={conRevisiones} onChange={handleDraftChange} />
         </div>
       ) : (
-        <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
-          <dt className="text-t500">Inicio</dt>
-          <dd className="text-t800">{formatDateForDisplay(entregable.fecha_inicio)}</dd>
-          <dt className="text-t500">Término</dt>
-          <dd className="text-t800">{formatDateForDisplay(entregable.fecha_termino)}</dd>
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-3">
+          <dt className="text-[11px] text-t500">Inicio</dt>
+          <dd className="text-t800 sm:col-span-2">{formatDateForDisplay(entregable.fecha_inicio)}</dd>
+          <dt className="text-[11px] text-t500">Término</dt>
+          <dd className="text-t800 sm:col-span-2">{formatDateForDisplay(entregable.fecha_termino)}</dd>
           {conRevisiones ? (
             <>
-              <dt className="text-t500">Rev. A</dt>
-              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revA)}</dd>
-              <dt className="text-t500">Rev. B</dt>
-              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revB)}</dd>
-              <dt className="text-t500">Rev. P</dt>
-              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revP)}</dd>
+              <dt className="text-[11px] text-t500">Rev. A</dt>
+              <dd className="text-t800 sm:col-span-2">{formatDateForDisplay(entregable.fecha_revA)}</dd>
+              <dt className="text-[11px] text-t500">Rev. B</dt>
+              <dd className="text-t800 sm:col-span-2">{formatDateForDisplay(entregable.fecha_revB)}</dd>
+              <dt className="text-[11px] text-t500">Rev. P</dt>
+              <dd className="text-t800 sm:col-span-2">{formatDateForDisplay(entregable.fecha_revP)}</dd>
             </>
           ) : (
             <>
-              <dt className="text-t500">Rev. P</dt>
-              <dd className="text-t800">{formatDateForDisplay(entregable.fecha_revP ?? entregable.fecha_termino)}</dd>
+              <dt className="text-[11px] text-t500">Rev. P</dt>
+              <dd className="text-t800 sm:col-span-2">
+                {formatDateForDisplay(entregable.fecha_revP ?? entregable.fecha_termino)}
+              </dd>
             </>
           )}
         </dl>
@@ -91,7 +99,7 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
               <Button
                 type="button"
                 size="sm"
-                className="min-h-[36px] bg-[#4F46E5] text-[11px] text-white hover:bg-[#3730A3]"
+                className="min-h-[36px] bg-[#4F46E5] text-[12px] text-white hover:bg-[#3730A3]"
                 onClick={handleGuardar}
               >
                 Guardar fechas
@@ -100,7 +108,7 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
                 type="button"
                 variant="outline"
                 size="sm"
-                className="min-h-[36px] text-[11px]"
+                className="min-h-[36px] text-[12px]"
                 onClick={handleCancelar}
               >
                 Cancelar
@@ -111,7 +119,7 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
               type="button"
               variant="outline"
               size="sm"
-              className="min-h-[36px] text-[11px]"
+              className="min-h-[36px] text-[12px]"
               onClick={() => {
                 resetDraft();
                 setSavedOk(false);
@@ -123,7 +131,7 @@ export default function EntregableFechasSection({ entregable, puedeEditar }: Pro
           )}
         </div>
       ) : (
-        <p className="mt-2 text-[10px] text-t500">Solo ADMIN puede editar fechas (mismo permiso que Formularios).</p>
+        <p className="mt-2 text-[11px] text-t500">Solo ADMIN puede editar fechas (mismo permiso que Formularios).</p>
       )}
     </div>
   );
