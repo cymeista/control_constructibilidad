@@ -415,6 +415,13 @@ export default function Formularios() {
   }, [entityParam]);
 
   useEffect(() => {
+    if (entityParam === "registro_horas") {
+      setActiveEntity("registro_horas");
+      setVistaRegistroHoras("operativo");
+    }
+  }, [entityParam]);
+
+  useEffect(() => {
     if (entityParam !== "asignaciones_horas") return;
     setAsignacionesListadoProyectoId(proyectoIdParam);
     setAsignacionesListadoEntregableId(entregableIdParam);

@@ -187,7 +187,7 @@ export function normalizarAMediaHoraMasCercano(h: number): number {
 export type LineaRedistribucionCategoria = {
   categoria: AsignacionHoraCategoria;
   presupuesto: number;
-  /** Gasto DIRECTA válido total del entregable por categoría (RegistroHora; alineado con Gestión de Horas). */
+  /** Gasto DIRECTA válido total del entregable por categoría (RegistroHora; alineado con Control de Horas). */
   gastoRealRegistroHora: number;
   /** presupuesto − gastoRealRegistroHora */
   saldoCategoria: number;
@@ -231,7 +231,7 @@ function gastoDirectoPorProfesionalEnEntregable(
 
 /**
  * Líneas operativas (presupuesto vs gasto RegistroHora) + campos legacy de asignaciones.
- * Fase 1: disponibleParaMover y déficit siguen la misma lógica que Control por categoría en Gestión de Horas.
+ * Fase 1: disponibleParaMover y déficit siguen la misma lógica que Control por categoría en Control de Horas.
  */
 export function construirLineasRedistribucion(
   ent: Entregable,

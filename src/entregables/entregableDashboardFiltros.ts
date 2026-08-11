@@ -52,7 +52,7 @@ export function entregableEsCompletado(e: Entregable): boolean {
   return slice === "COMPLETADO" || (Number(e.avance_real) || 0) >= 1;
 }
 
-/** Completados visibles en filtro Activos del Dashboard durante N días. */
+/** Completados visibles en filtro «En control» (ACTIVOS) del Dashboard durante N días. */
 export function entregableEsCompletadoReciente(e: Entregable, nowDate: Date, dias = 7): boolean {
   if (!entregableEsCompletado(e)) return false;
   const baseMs =
@@ -74,7 +74,7 @@ function entregableEstaPausado(e: Entregable): boolean {
 }
 
 /**
- * NO_INICIADO con fecha_inicio ya alcanzada (hoy o pasado) entra a Activos del Dashboard
+ * NO_INICIADO con fecha_inicio ya alcanzada (hoy o pasado) entra a «En control» (ACTIVOS) del Dashboard
  * sin persistir cambio de estado. No aplica a cancelados ni pausados.
  */
 export function entregableNoIniciadoEntraActivosPorFecha(e: Entregable): boolean {
@@ -87,7 +87,7 @@ export function entregableNoIniciadoEntraActivosPorFecha(e: Entregable): boolean
 }
 
 /**
- * Misma regla que Dashboard con filtro «Activos (predeterminado)»:
+ * Misma regla que Dashboard con filtro «En control» (value interno ACTIVOS):
  * - excluye cancelados;
  * - excluye no iniciados futuros (o sin fecha válida);
  * - incluye no iniciados con fecha_inicio ≤ hoy (salvo pausados);
@@ -107,7 +107,7 @@ export function entregableEsActivoDashboard(e: Entregable, nowDate: Date = new D
 
 /**
  * Próximos a iniciar: fecha_inicio estrictamente futura hasta hoy+21 días.
- * Hoy ya no entra (pasa a Activos). Excluye cancelados.
+ * Hoy ya no entra (pasa a En control). Excluye cancelados.
  * Pausados no se listan como próximos a iniciar (condición operativa distinta).
  */
 export function entregableEsProximoInicioDashboard(

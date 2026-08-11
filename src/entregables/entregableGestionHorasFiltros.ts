@@ -1,5 +1,5 @@
 /**
- * Filtros de entregables visibles en Gestión de Horas (vista Activos por defecto).
+ * Filtros de entregables visibles en Control de Horas (vista Activos por defecto).
  * Fuente de verdad para Reporte Ejecutivo y otras vistas que deban alinearse con Horas.
  */
 
@@ -21,7 +21,7 @@ export function estadoNormalizadoEntregableGestionHoras(s: string): string {
 }
 
 /**
- * Misma regla que Gestión de Horas con filtro «Activos / no completados» (predeterminado):
+ * Misma regla que Control de Horas con filtro «Activos / no completados» (predeterminado):
  * excluye COMPLETADO y NO_INICIADO (sin ventana de completados recientes).
  */
 export function entregablePasaFiltroActivosGestionHoras(e: Entregable): boolean {
@@ -53,7 +53,7 @@ function resolverProyectoIdsAlcance(
 }
 
 /**
- * Conjunto base de entregables activos visibles (Gestión de Horas, filtro Activos, sin filtro de alertas).
+ * Conjunto base de entregables activos visibles (Control de Horas, filtro Activos, sin filtro de alertas).
  */
 export function obtenerEntregablesActivosVisibles(
   entregables: Entregable[],

@@ -192,7 +192,7 @@ function entregableVencidoNoCompletado(ent: Entregable, hoy: string): boolean {
 }
 
 /**
- * Inclusión en presión de cartera: activos (Gestión de Horas), vencidos incompletos,
+ * Inclusión en presión de cartera: activos (Control de Horas), vencidos incompletos,
  * o no iniciados con fechas en el horizonte de 4 semanas (excluye no iniciados lejanos).
  */
 function entregableIncluidoPresionCartera(

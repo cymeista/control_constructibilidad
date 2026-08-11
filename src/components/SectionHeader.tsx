@@ -1,25 +1,35 @@
+import type { ReactNode } from "react";
+
 interface SectionHeaderProps {
   number: string;
   title: string;
   hint?: string;
+  /** Chip semántico junto al título (p. ej. HORAS REALES / PROYECCIÓN). */
+  badge?: ReactNode;
+  /** Acción opcional a la derecha del encabezado (p. ej. CTA principal). */
+  actions?: ReactNode;
 }
 
-export default function SectionHeader({ number, title, hint }: SectionHeaderProps) {
+export default function SectionHeader({ number, title, hint, badge, actions }: SectionHeaderProps) {
   return (
-    <div className="mb-6 flex flex-col gap-2 border-b border-bdr pb-4 sm:flex-row sm:items-end sm:gap-4">
-      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-3">
-        <span className="shrink-0 rounded-r6 border border-copper/25 bg-copper-bg px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-copper">
-          {number}
-        </span>
-        <h2 className="min-w-0 font-sans text-[clamp(1.05rem,1rem+0.35vw,1.25rem)] font-semibold leading-snug tracking-tight text-t900">
-          {title}
-        </h2>
+    <div className="mb-6 flex flex-col gap-3 border-b border-bdr pb-4 sm:flex-row sm:items-end sm:gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+          <span className="shrink-0 rounded-r6 border border-copper/25 bg-copper-bg px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-copper">
+            {number}
+          </span>
+          <h2 className="min-w-0 font-sans text-[clamp(1.05rem,1rem+0.35vw,1.25rem)] font-semibold leading-snug tracking-tight text-t900">
+            {title}
+          </h2>
+          {badge ? <div className="shrink-0">{badge}</div> : null}
+        </div>
+        {hint ? (
+          <p className="min-w-0 max-w-full text-[11px] leading-relaxed text-t500 sm:text-[12px]">
+            {hint}
+          </p>
+        ) : null}
       </div>
-      {hint ? (
-        <p className="min-w-0 max-w-full text-[11px] leading-relaxed text-t500 sm:text-[12px] sm:max-w-[min(100%,520px)] sm:text-right">
-          {hint}
-        </p>
-      ) : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{actions}</div> : null}
     </div>
   );
 }

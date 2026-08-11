@@ -1,5 +1,5 @@
 import { NavLink } from "react-router";
-import type { NavItemConfig } from "@/navigation/appNavConfig";
+import type { NavGroupConfig, NavItemConfig } from "@/navigation/appNavConfig";
 
 interface NavLinkListProps {
   items: NavItemConfig[];
@@ -41,5 +41,37 @@ export default function NavLinkList({ items, variant, onNavigate }: NavLinkListP
         );
       })}
     </>
+  );
+}
+
+interface NavGroupedListProps {
+  groups: NavGroupConfig[];
+  variant: "sidebar" | "drawer";
+  onNavigate?: () => void;
+}
+
+/** Lista agrupada: encabezados no seleccionables; omite grupos ya vacíos. */
+export function NavGroupedList({ groups, variant, onNavigate }: NavGroupedListProps) {
+  const isSidebar = variant === "sidebar";
+
+  return (
+    <div className="flex flex-col">
+      {groups.map((group, idx) => (
+        <div key={group.id} className={idx === 0 ? "" : isSidebar ? "mt-3" : "mt-4"}>
+          <p
+            className={
+              isSidebar
+                ? "mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35"
+                : "mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-t400"
+            }
+          >
+            {group.label}
+          </p>
+          <div className="flex flex-col gap-0.5">
+            <NavLinkList items={group.items} variant={variant} onNavigate={onNavigate} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

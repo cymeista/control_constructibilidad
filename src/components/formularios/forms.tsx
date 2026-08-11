@@ -1653,7 +1653,7 @@ export function RegistroHoraFormPanel({ editItem, onSaved, onCancel }: {
         <div className={`${registroAvisoBase} border-amber-500/45 bg-amber-500/10 text-amber-950`}>
           <p className={registroAvisoTitle}>Advertencias operativas</p>
           <p className={`${registroAvisoText} text-amber-900/95`}>
-            Puede guardar igual; revise equipo del entregable o presupuesto por categoría en Gestión de Horas.
+            Puede guardar igual; revise equipo del entregable o presupuesto por categoría en Control de Horas.
           </p>
           <ul className={registroAvisoList}>
             {advertenciasOperativasTexto.map((msg) => (

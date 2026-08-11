@@ -6,7 +6,7 @@
  * Ventana de proyección: desde max(fecha_inicio, fecha_consulta) hasta fecha_termino
  * (replanifica el saldo pendiente al futuro; no reparte horas en el calendario pasado).
  * Saldo: presupuesto vigente por categoría (hrs_*) − gasto real DIRECTA (`registro_horas`),
- * alineado con Gestión de Horas / `buildControlCategoriasEntregable`.
+ * alineado con Control de Horas / `buildControlCategoriasEntregable`.
  * L2 excluido por defecto.
  */
 
@@ -89,7 +89,7 @@ function proyectoEsActivo(pr: Proyecto | undefined): boolean {
   return pr?.estado === "ACTIVO";
 }
 
-/** Gasto DIRECTA válido por entregable → profesional (misma base que Gestión de Horas). */
+/** Gasto DIRECTA válido por entregable → profesional (misma base que Control de Horas). */
 function buildGastoProfPorEntregable(
   registro_horas: RegistroHora[],
   entregables: Entregable[],

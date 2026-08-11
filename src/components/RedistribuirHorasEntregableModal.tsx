@@ -396,7 +396,7 @@ export function RedistribuirHorasEntregableModal({ open, onOpenChange, ent, clie
               <div>
                 <div className="mb-1 font-semibold text-t900">Control por categoría (RegistroHora)</div>
                 <p className="mb-2 text-[10px] leading-snug text-t500">
-                  Misma lectura que Gestión de Horas: presupuesto del entregable vs gasto real DIRECTA válida por categoría
+                  Misma lectura que Control de Horas: presupuesto del entregable vs gasto real DIRECTA válida por categoría
                   del profesional.
                 </p>
                 <div className="overflow-x-auto rounded-r8 border border-bdr">

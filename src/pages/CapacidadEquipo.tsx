@@ -243,13 +243,17 @@ function CapacidadEquipo() {
       <SectionHeader
         number="CAPACIDAD"
         title="Capacidad del Equipo"
-        hint="Utilización real, capacidad disponible y presión de cartera"
+        badge={
+          <span className="inline-flex rounded-r6 border border-slate-300/80 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700">
+            Horas reales
+          </span>
+        }
+        hint="Carga y capacidad real del equipo · Utilización y presión de cartera"
       />
 
       <p className="max-w-3xl text-[13px] leading-relaxed text-t600">
-        Esta vista compara la capacidad disponible del equipo con las horas reales registradas y la presión de
-        cartera. La asignación por profesional se usa como referencia operativa, no como programación semanal
-        rígida.
+        Basado en horas reales registradas. Compara la capacidad disponible del equipo con el gasto observado y la
+        presión de cartera. La asignación por profesional es referencia operativa, no programación semanal rígida.
       </p>
 
       <div className="flex w-full min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
@@ -530,7 +534,7 @@ function CapacidadEquipo() {
         <div className="border-b border-bdr bg-surface2 px-5 py-4">
           <h3 className="font-playfair text-[1.05rem] font-semibold text-t900">Presión de cartera próxima</h3>
           <p className="mt-1 max-w-3xl text-[12px] leading-relaxed text-t600">
-            Entregables activos (Gestión de Horas), vencidos incompletos o con hitos en las próximas 4 semanas.
+            Entregables activos (Control de Horas), vencidos incompletos o con hitos en las próximas 4 semanas.
             Pendiente calculado sobre P4+P3+P2; excluye L2. Gasto = hrs_gastadas (RegistroHora DIRECTA válida).
           </p>
           <ul className="mt-2 hidden list-inside list-disc text-[11px] text-t500 md:block">

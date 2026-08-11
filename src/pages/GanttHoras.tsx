@@ -209,8 +209,17 @@ export default function GanttHoras() {
       <SectionHeader
         number="GH"
         title="Gantt de Horas"
-        hint="Proyección mensual del saldo pendiente por entregable (días hábiles desde inicio efectivo). Solo lectura."
+        badge={
+          <span className="inline-flex rounded-r6 border border-indigo-300/70 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-indigo-800">
+            Proyección de carga
+          </span>
+        }
+        hint="Proyección de carga futura por entregable · Saldo pendiente (días hábiles). Solo lectura."
       />
+
+      <p className="max-w-3xl text-[12px] leading-relaxed text-t500">
+        Basado en saldo pendiente y programación futura.
+      </p>
 
       <div className="flex flex-wrap items-end gap-4 rounded-r10 border border-bdr bg-white px-3 py-3 shadow-xs">
         <div className="flex min-w-[9rem] flex-col gap-1.5">

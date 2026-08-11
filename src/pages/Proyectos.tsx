@@ -480,7 +480,7 @@ export default function Proyectos() {
       <SectionHeader
         number="04"
         title="Proyectos · Vista ejecutiva"
-        hint={`Cliente → Proyecto → Entregables. Gasto vs avance: +${TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts. Umbrales alineados con Gestión de Horas.`}
+        hint={`Cliente → Proyecto → Entregables. Gasto vs avance: +${TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts. Umbrales alineados con Control de Horas.`}
       />
 
       {proyectosNoIniciadoConActividad.length > 0 ? (
@@ -1079,7 +1079,7 @@ export default function Proyectos() {
                                                         variant="ghost"
                                                         size="sm"
                                                         className="h-7 px-1.5 text-[9px]"
-                                                        title="Gestión de Horas"
+                                                        title="Control de Horas"
                                                         onClick={() => navigate("/horas")}
                                                       >
                                                         <Clock size={12} />

@@ -288,7 +288,11 @@ export default function GanttProfesionales() {
   if (months.length === 0 && arbol.length === 0) {
     return (
       <div className="min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-0">
-        <SectionHeader number="06b" title="Gantt Profesionales" hint="Sin participación en equipo" />
+        <SectionHeader
+          number="06b"
+          title="Gantt Profesionales"
+          hint="Asignación de personas en el tiempo · Sin participación en equipo"
+        />
         <div className="flex flex-col items-center justify-center py-[60px] text-center">
           <CalendarX className="mb-3 h-10 w-10 opacity-25 text-t300" />
           <p className="text-[13px] text-t300">No hay profesionales con entregables en equipo_entregable</p>
@@ -302,7 +306,7 @@ export default function GanttProfesionales() {
       <SectionHeader
         number="06b"
         title="Gantt Profesionales"
-        hint={`${arbol.length} profesionales · ${totalEntregables} entregables${months.length ? ` · ${months.length} meses` : ""}`}
+        hint={`Asignación de personas en el tiempo · ${arbol.length} profesionales · ${totalEntregables} entregables${months.length ? ` · ${months.length} meses` : ""}`}
       />
 
       <div

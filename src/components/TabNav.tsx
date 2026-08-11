@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { Link } from "react-router";
 import { useAuth } from "@/security/AuthContext";
 import { canViewRouteForSession } from "@/security/permissions";
-import { primaryNavItems, secondaryNavItems } from "@/navigation/appNavConfig";
-import NavLinkList from "@/components/NavLinkList";
+import { filterVisibleNavGroups, navGroups } from "@/navigation/appNavConfig";
+import { NavGroupedList } from "@/components/NavLinkList";
 
 /**
  * Navegación principal: barra lateral oscura (tablet y escritorio, md+).
@@ -12,12 +12,8 @@ import NavLinkList from "@/components/NavLinkList";
 export default function TabNav() {
   const { user, role, isAuthenticated, logout } = useAuth();
 
-  const visiblePrimary = useMemo(
-    () => primaryNavItems.filter((t) => canViewRouteForSession(role, t.to)),
-    [role],
-  );
-  const visibleSecondary = useMemo(
-    () => secondaryNavItems.filter((t) => canViewRouteForSession(role, t.to)),
+  const visibleGroups = useMemo(
+    () => filterVisibleNavGroups(navGroups, (route) => canViewRouteForSession(role, route)),
     [role],
   );
 
@@ -31,12 +27,9 @@ export default function TabNav() {
           Menú principal
         </p>
       </div>
-      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3">
-        <NavLinkList items={visiblePrimary} variant="sidebar" />
+      <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-3">
+        <NavGroupedList groups={visibleGroups} variant="sidebar" />
       </nav>
-      <div className="border-t border-white/[0.08] px-2 py-3">
-        <NavLinkList items={visibleSecondary} variant="sidebar" />
-      </div>
       <div className="mt-auto border-t border-white/[0.08] px-4 py-3">
         <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/35">Sesión</p>
         {isAuthenticated ? (

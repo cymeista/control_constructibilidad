@@ -367,7 +367,7 @@ function calcularHorasKpisReporte(
     dirCarg,
     indCarg,
     subtitulos: {
-      entregablesActivos: "Misma base que Gestión de Horas",
+      entregablesActivos: "Misma base que Control de Horas",
       entregablesCriticosRetrasados: "Estado visual recalculado · base activos visibles",
       horasDirectasReales: subDirectas,
       horasIndirectas: subIndirectas,
@@ -427,7 +427,7 @@ export function buildReporteEjecutivoSnapshot(
   const revisadas = mapaAlertasRevisadasPorClave(data.alertas_revisadas ?? []);
   const esAbierta = (clave: string) => filtros.incluirAlertasRevisadas || !revisadas.has(clave);
 
-  /** Misma base que Gestión de Horas → filtro Activos / no completados (predeterminado). */
+  /** Misma base que Control de Horas → filtro Activos / no completados (predeterminado). */
   const entActivos = obtenerEntregablesActivosVisibles(
     data.entregables,
     data.proyectos,

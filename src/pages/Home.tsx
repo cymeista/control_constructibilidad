@@ -703,7 +703,7 @@ export default function Home() {
         if (clienteFilter && c?.id !== clienteFilter) return false;
         if (proyectoFilter && p?.id !== proyectoFilter) return false;
         if (liderFilter && e.lider_id !== liderFilter) return false;
-        // fecha_inicio > hoy AND ≤ hoy+21; excluye hoy (va a Activos).
+        // fecha_inicio > hoy AND ≤ hoy+21; excluye hoy (va a En control / ACTIVOS).
         return entregableEsProximoInicioDashboard(e);
       })
       .sort(compararEntregablesPorFechaInicioAsc);
@@ -1225,7 +1225,7 @@ export default function Home() {
         <SectionHeader
           number="02"
           title="Control de Proyectos · Gestión de Crisis"
-          hint="Seguimiento operativo agrupado por cliente y proyecto. Por defecto: activos (incluye inicio alcanzado aunque siga No Iniciado; excluye completados antiguos y cancelados)."
+          hint="Seguimiento operativo agrupado por cliente y proyecto. Por defecto: en control (incluye inicio alcanzado aunque siga No Iniciado; excluye completados antiguos y cancelados)."
         />
 
         <div className="mb-4 hidden flex-wrap items-start justify-end gap-3 md:flex">
@@ -1261,7 +1261,7 @@ export default function Home() {
             onChange={(e) => setEstadoSeguimientoFiltro(e.target.value as EstadoSeguimientoFiltro)}
             className="w-full rounded-r8 border border-bdr bg-surface px-3 py-2.5 text-[13px] text-t700 outline-none focus:border-copper focus:shadow-[0_0_0_3px_rgba(196,93,44,0.15)]"
           >
-            <option value="ACTIVOS">Activos (predeterminado)</option>
+            <option value="ACTIVOS">En control (predeterminado)</option>
             <option value="TODOS">Todos</option>
             <option value="EN_PLAZO">En plazo</option>
             <option value="ADELANTADOS">Adelantados</option>
@@ -1533,8 +1533,8 @@ export default function Home() {
             Próximos a iniciar (próximas 3 semanas)
           </h3>
           <p className="mt-1 text-[11px] leading-relaxed text-t600">
-            Solo inicios futuros (mañana → hoy+21 días). El día de inicio pasa a Activos. No aplica el filtro
-            &quot;Activos&quot;. Respeta cliente, proyecto y líder si están filtrados. Excluye cancelados y pausados.
+            Solo inicios futuros (mañana → hoy+21 días). El día de inicio pasa a En control. No aplica el filtro
+            &quot;En control&quot;. Respeta cliente, proyecto y líder si están filtrados. Excluye cancelados y pausados.
           </p>
           {entregablesProximosInicio3Semanas.length === 0 ? (
             <p className="mt-3 text-[13px] text-t400">Ningún entregable con inicio futuro en la ventana de 21 días.</p>

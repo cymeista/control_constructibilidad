@@ -725,7 +725,7 @@ function TabHoras({
                   className="justify-start gap-1.5 text-[12px]"
                   onClick={onGestionHoras}
                 >
-                  <Clock size={14} /> Gestión de Horas
+                  <Clock size={14} /> Control de Horas
                 </Button>
               ) : null}
             </div>

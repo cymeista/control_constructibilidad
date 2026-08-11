@@ -4,13 +4,13 @@ import { LayoutGrid, LogIn, LogOut, Menu } from "lucide-react";
 import { useAuth } from "@/security/AuthContext";
 import { canViewRouteForSession, type AppRoute } from "@/security/permissions";
 import {
-  adminNavItems,
+  allMenuNavItems,
+  filterVisibleNavGroups,
   mobileFourthTabCandidates,
-  primaryNavItems,
-  secondaryNavItems,
+  navGroups,
   type NavItemConfig,
 } from "@/navigation/appNavConfig";
-import NavLinkList from "@/components/NavLinkList";
+import { NavGroupedList } from "@/components/NavLinkList";
 import {
   Sheet,
   SheetContent,
@@ -24,14 +24,9 @@ interface MobileNavProps {
   onMenuOpenChange: (open: boolean) => void;
 }
 
-function filterVisible(items: NavItemConfig[], role: ReturnType<typeof useAuth>["role"]) {
-  return items.filter((t) => canViewRouteForSession(role, t.to));
-}
-
 function pickBottomTabs(role: ReturnType<typeof useAuth>["role"]): NavItemConfig[] {
   const fixed: AppRoute[] = ["/", "/horas", "/proyectos"];
-  const all = [...primaryNavItems, ...secondaryNavItems];
-  const byRoute = new Map(all.map((i) => [i.to, i]));
+  const byRoute = new Map(allMenuNavItems.map((i) => [i.to, i]));
 
   const tabs: NavItemConfig[] = [];
   for (const route of fixed) {
@@ -52,9 +47,10 @@ function pickBottomTabs(role: ReturnType<typeof useAuth>["role"]): NavItemConfig
 export default function MobileNav({ menuOpen, onMenuOpenChange }: MobileNavProps) {
   const { user, role, isAuthenticated, logout } = useAuth();
 
-  const visiblePrimary = useMemo(() => filterVisible(primaryNavItems, role), [role]);
-  const visibleSecondary = useMemo(() => filterVisible(secondaryNavItems, role), [role]);
-  const visibleAdmin = useMemo(() => filterVisible(adminNavItems, role), [role]);
+  const visibleGroups = useMemo(
+    () => filterVisibleNavGroups(navGroups, (route) => canViewRouteForSession(role, route)),
+    [role],
+  );
   const bottomTabs = useMemo(() => pickBottomTabs(role), [role]);
 
   const closeMenu = () => onMenuOpenChange(false);
@@ -125,34 +121,7 @@ export default function MobileNav({ menuOpen, onMenuOpenChange }: MobileNavProps
           </SheetHeader>
 
           <div className="flex flex-1 flex-col overflow-y-auto px-3 py-3">
-            <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-t400">
-              Principal
-            </p>
-            <div className="flex flex-col gap-0.5">
-              <NavLinkList items={visiblePrimary} variant="drawer" onNavigate={closeMenu} />
-            </div>
-
-            {visibleSecondary.length > 0 ? (
-              <>
-                <p className="mb-2 mt-4 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-t400">
-                  Datos y configuración
-                </p>
-                <div className="flex flex-col gap-0.5">
-                  <NavLinkList items={visibleSecondary} variant="drawer" onNavigate={closeMenu} />
-                </div>
-              </>
-            ) : null}
-
-            {visibleAdmin.length > 0 ? (
-              <>
-                <p className="mb-2 mt-4 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-t400">
-                  Administración
-                </p>
-                <div className="flex flex-col gap-0.5">
-                  <NavLinkList items={visibleAdmin} variant="drawer" onNavigate={closeMenu} />
-                </div>
-              </>
-            ) : null}
+            <NavGroupedList groups={visibleGroups} variant="drawer" onNavigate={closeMenu} />
           </div>
 
           <div className="border-t border-bdr px-4 py-3">

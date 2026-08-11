@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, AlertTriangle, ExternalLink } from "lucide-react";
+import { ChevronRight, AlertTriangle, ExternalLink, Upload } from "lucide-react";
 import { useNavigate, useSearchParams, type NavigateFunction } from "react-router";
 import { useAppData } from "@/context/AppDataContext";
 import SectionHeader from "@/components/SectionHeader";
@@ -354,8 +354,20 @@ export default function Horas() {
     <div className="animate-fade-in min-w-0 max-w-full overflow-x-hidden pb-20 md:pb-0">
       <SectionHeader
         number="03"
-        title="Gestión de Horas · Análisis Cliente → Proyecto → Entregable"
-        hint={`Umbrales: sobreconsumo > 100%, gasto vs avance > +${TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts`}
+        title="Control de Horas"
+        hint={`Consumo, saldo y seguimiento por entregable · Umbrales: sobreconsumo > 100%, gasto vs avance > +${TOLERANCIA_GASTO_VS_AVANCE_PUNTOS} pts`}
+        actions={
+          puedeVerFormularios ? (
+            <Button
+              type="button"
+              className="h-10 min-h-[40px] gap-1.5 bg-[#4F46E5] px-4 text-[13px] font-semibold text-white hover:bg-[#3730A3]"
+              onClick={() => navigate("/formularios?entity=registro_horas")}
+            >
+              <Upload className="h-4 w-4" />
+              Cargar horas
+            </Button>
+          ) : null
+        }
       />
 
       <div className={`mb-[18px] ${kpiCardsGridClassName}`}>

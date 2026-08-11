@@ -1,6 +1,6 @@
 /**
  * Lectura y agregación para la vista ejecutiva Proyectos (sin mutar datos).
- * Alineado con Gestión de Horas: presupuesto = suma L2+P4+P3+P2; gasto = registros directos válidos.
+ * Alineado con Control de Horas: presupuesto = suma L2+P4+P3+P2; gasto = registros directos válidos.
  */
 
 import type {
@@ -93,7 +93,7 @@ export function horasPresupuestoPorCategorias(ent: Entregable): number {
   return Number(ent.hrs_l2) + Number(ent.hrs_p4) + Number(ent.hrs_p3) + Number(ent.hrs_p2);
 }
 
-/** Presupuesto horas P4+P3+P2 (sin L2), misma base que Gestión de Horas / Capacidad presión. */
+/** Presupuesto horas P4+P3+P2 (sin L2), misma base que Control de Horas / Capacidad presión. */
 export function horasPresupuestoSinL2(ent: Entregable): number {
   return Number(ent.hrs_p4) + Number(ent.hrs_p3) + Number(ent.hrs_p2);
 }
