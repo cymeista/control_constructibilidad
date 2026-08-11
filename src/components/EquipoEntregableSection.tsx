@@ -17,9 +17,7 @@ function GastoDetalleIntegrante({ item }: { item: IntegranteGastoEquipo }) {
         <p className="font-mono">Sin gasto real</p>
       ) : (
         <>
-          <p className="font-mono">
-            Gasto real profesional: {fmtH(item.horasProf)} h
-          </p>
+          <p className="font-mono">Gasto real profesional: {fmtH(item.horasProf)} h</p>
           <p className="font-mono">
             Gasto real total entregable (P4+P3+P2): {fmtH(item.horasTotalesEnt)} h
           </p>
@@ -44,11 +42,7 @@ function FilaIntegrante({
   onQuitar: () => void;
 }) {
   return (
-    <li
-      className={`rounded-r8 border border-bdr bg-white px-3 py-2.5 ${
-        wideLayout ? "sm:px-4" : ""
-      }`}
-    >
+    <li className={`rounded-r8 border border-bdr bg-white px-3 py-2.5 ${wideLayout ? "sm:px-4" : ""}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">

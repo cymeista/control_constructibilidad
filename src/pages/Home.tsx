@@ -18,7 +18,11 @@ import {
   resolverEstadoVisualEntregable,
 } from "@/entregables/entregableSeguimiento";
 import {
+  compararEntregablesPorFechaInicioAsc,
+  entregableEsActivoDashboard,
   entregableEsCompletadoReciente,
+  entregableEsProximoInicioDashboard,
+  entregableMuestraSenalSinAvanceDashboard,
   estadoToDonutSlice,
   type EntregableDonutSlice,
 } from "@/entregables/entregableDashboardFiltros";
@@ -267,6 +271,16 @@ function DashboardEntregableSeguimientoCard({
       {codigo ? <p className="text-[10px] text-t500">{codigo}</p> : null}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <StatusPill variant={status} labelOverride={estadoToEtiquetaTabla(estadoVisual)} />
+        {e.pausado === true && e.cancelado !== true ? (
+          <span className="rounded-r6 border border-amber-300/60 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+            Pausado
+          </span>
+        ) : null}
+        {entregableMuestraSenalSinAvanceDashboard(e) ? (
+          <span className="rounded-r6 border border-amber-300/60 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+            Inicio alcanzado · sin avance
+          </span>
+        ) : null}
         {completadoReciente ? (
           <span className="rounded-r6 border border-bdr bg-surface2 px-2 py-0.5 text-[10px] font-semibold text-t500">
             Completado reciente
@@ -400,13 +414,6 @@ function nneg(v: unknown): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-function parseFechaInicioMs(iso: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
-  if (!m) return null;
-  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0).getTime();
-  return Number.isFinite(t) ? t : null;
-}
-
 /** Filtro de estado del bloque seguimiento (normalizado vía `estadoToDonutSlice`). */
 type EstadoSeguimientoFiltro =
   | "TODOS"
@@ -424,10 +431,8 @@ function entregablePasaFiltroEstadoSeguimiento(e: Entregable, filtro: EstadoSegu
     case "TODOS":
       return true;
     case "ACTIVOS":
-      if (slice === "NO_INICIADO") return false;
-      if (slice !== "COMPLETADO") return true;
-      // Completados recientes: se mantienen visibles en Activos por 7 días.
-      return entregableEsCompletadoReciente(e, new Date(), 7);
+      // Incluye NO_INICIADO con fecha_inicio ≤ hoy (solo visualización Dashboard).
+      return entregableEsActivoDashboard(e);
     case "COMPLETADOS":
       return slice === "COMPLETADO";
     case "NO_INICIADOS":
@@ -691,22 +696,17 @@ export default function Home() {
   }, [filteredEntregables, data.proyectos, data.clientes]);
 
   const entregablesProximosInicio3Semanas = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start.getTime() + 21 * 86400000);
-    end.setHours(23, 59, 59, 999);
-    const t0 = start.getTime();
-    const t1 = end.getTime();
-    return data.entregables.filter((e) => {
-      const p = data.proyectos.find((pr) => pr.id === e.proyecto_id);
-      const c = p ? data.clientes.find((cl) => cl.id === p.cliente_id) : null;
-      if (clienteFilter && c?.id !== clienteFilter) return false;
-      if (proyectoFilter && p?.id !== proyectoFilter) return false;
-      if (liderFilter && e.lider_id !== liderFilter) return false;
-      const tin = parseFechaInicioMs(e.fecha_inicio);
-      if (tin == null) return false;
-      return tin >= t0 && tin <= t1;
-    });
+    return data.entregables
+      .filter((e) => {
+        const p = data.proyectos.find((pr) => pr.id === e.proyecto_id);
+        const c = p ? data.clientes.find((cl) => cl.id === p.cliente_id) : null;
+        if (clienteFilter && c?.id !== clienteFilter) return false;
+        if (proyectoFilter && p?.id !== proyectoFilter) return false;
+        if (liderFilter && e.lider_id !== liderFilter) return false;
+        // fecha_inicio > hoy AND ≤ hoy+21; excluye hoy (va a Activos).
+        return entregableEsProximoInicioDashboard(e);
+      })
+      .sort(compararEntregablesPorFechaInicioAsc);
   }, [data.entregables, data.proyectos, data.clientes, clienteFilter, proyectoFilter, liderFilter]);
 
   /* ── Filter options ── */
@@ -1225,7 +1225,7 @@ export default function Home() {
         <SectionHeader
           number="02"
           title="Control de Proyectos · Gestión de Crisis"
-          hint="Seguimiento operativo agrupado por cliente y proyecto. Por defecto: activos (excluye completados y no iniciados)."
+          hint="Seguimiento operativo agrupado por cliente y proyecto. Por defecto: activos (incluye inicio alcanzado aunque siga No Iniciado; excluye completados antiguos y cancelados)."
         />
 
         <div className="mb-4 hidden flex-wrap items-start justify-end gap-3 md:flex">
@@ -1447,6 +1447,16 @@ export default function Home() {
                                           <td className="max-w-[220px] px-2 py-2">
                                             <div className="flex flex-wrap items-center gap-2">
                                               <StatusPill variant={status} labelOverride={estadoToEtiquetaTabla(estadoVisual)} />
+                                              {e.pausado === true && e.cancelado !== true ? (
+                                                <span className="rounded-r6 border border-amber-300/60 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                                                  Pausado
+                                                </span>
+                                              ) : null}
+                                              {entregableMuestraSenalSinAvanceDashboard(e) ? (
+                                                <span className="rounded-r6 border border-amber-300/60 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                                  Inicio alcanzado · sin avance
+                                                </span>
+                                              ) : null}
                                               {completadoReciente ? (
                                                 <span className="rounded-r6 border border-bdr bg-white px-2 py-0.5 text-[10px] font-semibold text-t500">
                                                   Completado reciente
@@ -1523,11 +1533,11 @@ export default function Home() {
             Próximos a iniciar (próximas 3 semanas)
           </h3>
           <p className="mt-1 text-[11px] leading-relaxed text-t600">
-            Incluye cualquier estado; no aplica el filtro &quot;Activos&quot;. Respeta cliente, proyecto y líder si están
-            filtrados.
+            Solo inicios futuros (mañana → hoy+21 días). El día de inicio pasa a Activos. No aplica el filtro
+            &quot;Activos&quot;. Respeta cliente, proyecto y líder si están filtrados. Excluye cancelados y pausados.
           </p>
           {entregablesProximosInicio3Semanas.length === 0 ? (
-            <p className="mt-3 text-[13px] text-t400">Ningún entregable con inicio en la ventana de 21 días.</p>
+            <p className="mt-3 text-[13px] text-t400">Ningún entregable con inicio futuro en la ventana de 21 días.</p>
           ) : (
             <>
             <div className="mt-3 space-y-2 md:hidden">

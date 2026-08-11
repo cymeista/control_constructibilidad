@@ -1,9 +1,13 @@
 /**
  * Filtros y clasificación de entregables alineados con Dashboard / Gestión de Crisis (Bloque seguimiento).
  * Extraído para reutilizar en Reporte Ejecutivo sin duplicar reglas.
+ *
+ * Nota: la inclusión de NO_INICIADO con fecha_inicio ≤ hoy es solo clasificación de Dashboard;
+ * no modifica `entregable.estado` persistido ni `resolveEstado`.
  */
 
 import type { Entregable } from "@/context/AppDataContext";
+import { diffCalendarDaysFromToday } from "@/lib/localDate";
 
 export type EntregableDonutSlice =
   | "CRITICO"
@@ -12,6 +16,11 @@ export type EntregableDonutSlice =
   | "ADELANTADO"
   | "NO_INICIADO"
   | "COMPLETADO";
+
+/** Horizonte de «Próximos a iniciar» (días calendario desde mañana inclusive hasta hoy+N). */
+export const DASHBOARD_PROXIMOS_INICIO_DIAS = 21;
+
+const EPS_AVANCE = 1e-9;
 
 export function estadoToDonutSlice(estado: Entregable["estado"]): EntregableDonutSlice {
   const s = String(estado);
@@ -56,13 +65,79 @@ export function entregableEsCompletadoReciente(e: Entregable, nowDate: Date, dia
   return t >= threshold;
 }
 
+function entregableEstaCancelado(e: Entregable): boolean {
+  return e.cancelado === true;
+}
+
+function entregableEstaPausado(e: Entregable): boolean {
+  return e.cancelado !== true && e.pausado === true;
+}
+
+/**
+ * NO_INICIADO con fecha_inicio ya alcanzada (hoy o pasado) entra a Activos del Dashboard
+ * sin persistir cambio de estado. No aplica a cancelados ni pausados.
+ */
+export function entregableNoIniciadoEntraActivosPorFecha(e: Entregable): boolean {
+  if (entregableEstaCancelado(e)) return false;
+  if (entregableEstaPausado(e)) return false;
+  if (estadoToDonutSlice(e.estado) !== "NO_INICIADO") return false;
+  const diff = diffCalendarDaysFromToday(e.fecha_inicio);
+  if (diff == null) return false;
+  return diff <= 0;
+}
+
 /**
  * Misma regla que Dashboard con filtro «Activos (predeterminado)»:
- * excluye no iniciados y completados antiguos; incluye completados recientes (7 días).
+ * - excluye cancelados;
+ * - excluye no iniciados futuros (o sin fecha válida);
+ * - incluye no iniciados con fecha_inicio ≤ hoy (salvo pausados);
+ * - excluye completados antiguos; incluye completados recientes (7 días).
+ * No modifica estado persistido.
  */
 export function entregableEsActivoDashboard(e: Entregable, nowDate: Date = new Date()): boolean {
+  if (entregableEstaCancelado(e)) return false;
+
   const slice = estadoToDonutSlice(e.estado);
-  if (slice === "NO_INICIADO") return false;
+  if (slice === "NO_INICIADO") {
+    return entregableNoIniciadoEntraActivosPorFecha(e);
+  }
   if (slice !== "COMPLETADO") return true;
   return entregableEsCompletadoReciente(e, nowDate, 7);
+}
+
+/**
+ * Próximos a iniciar: fecha_inicio estrictamente futura hasta hoy+21 días.
+ * Hoy ya no entra (pasa a Activos). Excluye cancelados.
+ * Pausados no se listan como próximos a iniciar (condición operativa distinta).
+ */
+export function entregableEsProximoInicioDashboard(
+  e: Entregable,
+  horizonteDias: number = DASHBOARD_PROXIMOS_INICIO_DIAS,
+): boolean {
+  if (entregableEstaCancelado(e)) return false;
+  if (entregableEstaPausado(e)) return false;
+  const diff = diffCalendarDaysFromToday(e.fecha_inicio);
+  if (diff == null) return false;
+  return diff > 0 && diff <= horizonteDias;
+}
+
+/** Señal visual: inicio ya pasó y aún no hay avance real. No es estado persistido. */
+export function entregableMuestraSenalSinAvanceDashboard(e: Entregable): boolean {
+  if (entregableEstaCancelado(e)) return false;
+  const diff = diffCalendarDaysFromToday(e.fecha_inicio);
+  if (diff == null || diff >= 0) return false;
+  const ar = Number(e.avance_real) || 0;
+  return Math.abs(ar) <= EPS_AVANCE;
+}
+
+/** Orden ascendente por fecha_inicio (ISO); inválidas al final. */
+export function compararEntregablesPorFechaInicioAsc(a: Entregable, b: Entregable): number {
+  const da = (a.fecha_inicio ?? "").trim();
+  const db = (b.fecha_inicio ?? "").trim();
+  const va = diffCalendarDaysFromToday(da) != null;
+  const vb = diffCalendarDaysFromToday(db) != null;
+  if (va && !vb) return -1;
+  if (!va && vb) return 1;
+  if (!va && !vb) return 0;
+  return da.localeCompare(db);
 }
