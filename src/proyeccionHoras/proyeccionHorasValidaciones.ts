@@ -566,7 +566,7 @@ export function ejecutarValidacionesProyeccionHoras(): Caso[] {
     });
   }
 
-  // C3. Reactivar (cancelado=false) vuelve a proyectar
+  // C3. Reactivado (cancelado=false) proyecta saldo
   {
     const data = fixture();
     data.entregables = [
@@ -592,6 +592,213 @@ export function ejecutarValidacionesProyeccionHoras(): Caso[] {
         assertClose(snap.entregables[0]!.saldo_horas_total, 80) &&
         snap.conteos.excluidos_cancelados === 0,
       detalle: `proy=${snap.entregables.length} saldo=${snap.entregables[0]?.saldo_horas_total}`,
+    });
+  }
+
+  // P1. Pausado sin tentativas → 0 mensuales + horas pausadas
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "eP0",
+        nombre: "Pausado sin prog",
+        hrs_p4: 100,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-12-31",
+        pausado: true,
+        fecha_pausa: "2026-08-10",
+        motivo_pausa: "Stand by",
+        fecha_reinicio_tentativa: null,
+        fecha_termino_tentativa: null,
+      }),
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 8,
+      factorCargabilidadPct: 100,
+    });
+    casos.push({
+      nombre: "P1. Pausado sin tentativas: 0 carga, saldo en horas pausadas",
+      ok:
+        snap.entregables.length === 0 &&
+        assertClose(snap.horas_pausadas_sin_programacion, 100) &&
+        snap.entregables_pausados_sin_programacion === 1 &&
+        snap.observaciones.some((o) => o.codigo === "SALDO_PAUSADO_SIN_PROGRAMACION") &&
+        snap.conteos.excluidos_cancelados === 0,
+      detalle: `proy=${snap.entregables.length} pausadas=${snap.horas_pausadas_sin_programacion}`,
+    });
+  }
+
+  // P2. Pausado con tentativas Oct–Nov
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "eP1",
+        nombre: "Pausado con tentativas",
+        hrs_p4: 100,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-12-31",
+        pausado: true,
+        fecha_pausa: "2026-08-10",
+        motivo_pausa: "Espera",
+        fecha_reinicio_tentativa: "2026-10-01",
+        fecha_termino_tentativa: "2026-11-30",
+      }),
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 8,
+      factorCargabilidadPct: 100,
+    });
+    const row = snap.entregables[0];
+    const ago = row?.meses.find((m) => m.mes === "2026-08")?.horas ?? 0;
+    const sep = row?.meses.find((m) => m.mes === "2026-09")?.horas ?? 0;
+    const oct = row?.meses.find((m) => m.mes === "2026-10")?.horas ?? 0;
+    const nov = row?.meses.find((m) => m.mes === "2026-11")?.horas ?? 0;
+    const suma = (row?.meses.reduce((s, m) => s + m.horas, 0) ?? 0);
+    casos.push({
+      nombre: "P2. Pausado con tentativas: 0 en pausa; 100% en Oct–Nov",
+      ok:
+        !!row &&
+        row.proyeccion_tentativa === true &&
+        assertClose(ago, 0) &&
+        assertClose(sep, 0) &&
+        oct + nov > 99 &&
+        assertClose(suma, 100) &&
+        assertClose(snap.horas_pausadas_sin_programacion, 0),
+      detalle: row
+        ? `ago=${ago} sep=${sep} oct=${oct} nov=${nov} suma=${suma}`
+        : "sin fila",
+    });
+  }
+
+  // P3. Tentativas inválidas
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "ePbad",
+        nombre: "Pausa inválida",
+        hrs_p4: 50,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-12-31",
+        pausado: true,
+        fecha_pausa: "2026-08-10",
+        motivo_pausa: "Datos legacy",
+        fecha_reinicio_tentativa: "2026-11-01",
+        fecha_termino_tentativa: "2026-10-01",
+      }),
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 6,
+    });
+    casos.push({
+      nombre: "P3. Tentativas inválidas: no proyecta + observación",
+      ok:
+        snap.entregables.length === 0 &&
+        assertClose(snap.horas_pausadas_sin_programacion, 0) &&
+        snap.observaciones.some((o) => o.codigo === "PAUSA_FECHAS_TENTATIVAS_INVALIDAS"),
+      detalle: snap.observaciones.map((o) => o.codigo).join(","),
+    });
+  }
+
+  // P4. Pausado con DIRECTA históricas: reales en mes no suman a carga; saldo intacto
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "eReal",
+        nombre: "Pausado con real",
+        hrs_p4: 100,
+        fecha_inicio: "2026-06-01",
+        fecha_termino: "2026-12-31",
+        pausado: true,
+        fecha_pausa: "2026-08-10",
+        motivo_pausa: "Stand by",
+        fecha_reinicio_tentativa: "2026-10-01",
+        fecha_termino_tentativa: "2026-11-30",
+      }),
+    ];
+    data.registro_horas = [
+      {
+        id: "rhR1",
+        profesional_id: "prof1",
+        proyecto_id: "pr1",
+        entregable_id: "eReal",
+        tipo_hora: "DIRECTA",
+        fecha: "2026-08-03",
+        horas: 25,
+        descripcion: "",
+        created_at: "",
+        updated_at: "",
+      } as RegistroHora,
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 8,
+      factorCargabilidadPct: 100,
+    });
+    const row = snap.entregables[0];
+    const carga = snap.total_general.meses.reduce((s, m) => s + m.horas, 0);
+    const realesAgo = row?.meses.find((m) => m.mes === "2026-08")?.horas_reales ?? 0;
+    const proyAgo = row?.meses.find((m) => m.mes === "2026-08")?.horas ?? 0;
+    casos.push({
+      nombre: "P4. Reales históricas no suman a carga; saldo = 75; Aug proy=0",
+      ok:
+        !!row &&
+        assertClose(row.saldo_horas_total, 75) &&
+        assertClose(row.horas_reales_total ?? 0, 25) &&
+        assertClose(realesAgo, 25) &&
+        assertClose(proyAgo, 0) &&
+        assertClose(carga, 75) &&
+        assertClose(row.meses.reduce((s, m) => s + m.horas, 0), 75),
+      detalle: row
+        ? `saldo=${row.saldo_horas_total} realTot=${row.horas_reales_total} carga=${carga} realesAgo=${realesAgo} proyAgo=${proyAgo}`
+        : "sin fila",
+    });
+  }
+
+  // P5. Horas posteriores a pausa → observación
+  {
+    const data = fixture();
+    data.entregables = [
+      baseEnt({
+        id: "ePost",
+        nombre: "Pausa con horas post",
+        hrs_p4: 80,
+        fecha_inicio: "2026-08-01",
+        fecha_termino: "2026-12-31",
+        pausado: true,
+        fecha_pausa: "2026-08-10",
+        motivo_pausa: "Pausa",
+        fecha_reinicio_tentativa: "2026-10-01",
+        fecha_termino_tentativa: "2026-10-31",
+      }),
+    ];
+    data.registro_horas = [
+      {
+        id: "rhPost",
+        profesional_id: "prof1",
+        proyecto_id: "pr1",
+        entregable_id: "ePost",
+        tipo_hora: "DIRECTA",
+        fecha: "2026-08-20",
+        horas: 8,
+        descripcion: "",
+        created_at: "",
+        updated_at: "",
+      } as RegistroHora,
+    ];
+    const snap = buildProyeccionHorasSnapshot(data, {
+      fechaConsulta: "2026-08-05",
+      horizonteMeses: 6,
+    });
+    casos.push({
+      nombre: "P5. DIRECTA posterior a pausa genera HORAS_POSTERIORES_A_PAUSA",
+      ok: snap.observaciones.some((o) => o.codigo === "HORAS_POSTERIORES_A_PAUSA"),
+      detalle: snap.observaciones.map((o) => o.codigo).join(","),
     });
   }
 

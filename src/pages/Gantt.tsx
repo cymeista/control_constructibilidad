@@ -13,6 +13,12 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { localDateFromDate } from "@/lib/localDate";
+import {
+  resolverSegmentosGanttEntregable,
+  type SegmentoGantt,
+} from "@/gantt/ganttEntregableSegmentos";
+import { entregableEstaCancelado } from "@/entregables/entregableCancelacion";
+import { buildHorasRealesPorEntregable } from "@/entregables/horasRealesEntregable";
 
 /* ─────────── Types ─────────── */
 
@@ -23,6 +29,9 @@ interface GanttMonth {
   days: number;
   isTodayMonth: boolean;
 }
+
+/** Tope visual: evita Gantt inutilizable por tentativas muy lejanas. */
+const GANTT_TIMELINE_MAX_MONTHS = 36;
 
 interface TooltipState {
   visible: boolean;
@@ -37,6 +46,13 @@ interface TooltipState {
     avance: string;
     ufPresup: string;
     ufCons: string;
+    /** Etiqueta alternativa para la fila de inicio. */
+    labelInicio?: string;
+    /** Etiqueta alternativa para la fila de término (p. ej. Fecha de pausa). */
+    labelTermino?: string;
+    motivoPausa?: string;
+    nota?: string;
+    horasReales?: string;
   } | null;
 }
 
@@ -289,34 +305,83 @@ function GanttStatusBadge({ estado }: { estado: Entregable["estado"] }) {
   );
 }
 
+function GanttPausadoBadge({
+  tieneTentativo,
+  inconsistente,
+}: {
+  tieneTentativo: boolean;
+  inconsistente?: boolean;
+}) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center whitespace-nowrap rounded-[3px] px-[6px] py-[2px] text-[8px] font-bold uppercase tracking-[.04em] text-white"
+      style={{ background: inconsistente ? "#B45309" : "#0369A1" }}
+      title={inconsistente ? "Fecha de pausa inconsistente con el inicio" : undefined}
+    >
+      {inconsistente ? "Pausa ?" : tieneTentativo ? "Pausado · tent." : "Pausado"}
+    </span>
+  );
+}
+
+function segmentoSolapaRango(seg: SegmentoGantt, minM: Date, maxM: Date): boolean {
+  const s = parseDate(seg.desde);
+  const e = parseDate(seg.hasta);
+  if (!Number.isFinite(s.getTime()) || !Number.isFinite(e.getTime())) return false;
+  return e >= minM && s <= maxM;
+}
+
 /* ─────────── Main Page ─────────── */
 
 export default function Gantt() {
-  const { entregables, proyectos, clientes, profesionales } = useAppData();
+  const { entregables, proyectos, clientes, profesionales, registro_horas } = useAppData();
 
   const profMap = useMemo(() => {
     const m = new Map<string, string>();
     profesionales.forEach((p) => m.set(p.id, p.nombre_completo));
     return m;
   }, [profesionales]);
+
+  const horasRealesPorEnt = useMemo(
+    () => buildHorasRealesPorEntregable(registro_horas, entregables, proyectos, profesionales),
+    [registro_horas, entregables, proyectos, profesionales],
+  );
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set(clientes.map((c) => c.id)));
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set(proyectos.map((p) => p.id)));
   const [filterActive, setFilterActive] = useState(false);
   const [tooltip, setTooltip] = useState<TooltipState>({ visible: false, x: 0, y: 0, data: null });
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  /* ── compute timeline ── */
+  /* ── compute timeline (oficiales + segmentos pausa/tentativos, con tope) ── */
   const months = useMemo(() => {
     if (entregables.length === 0) return [];
-    const dates = entregables.map((e) => parseDate(e.fecha_inicio));
-    const ends = entregables.map((e) => parseDate(e.fecha_termino));
-    const minDate = new Date(Math.min(...dates.map((d) => d.getTime())));
-    const maxDate = new Date(Math.max(...ends.map((d) => d.getTime())));
-    // Add buffer
+    const times: number[] = [];
+    for (const e of entregables) {
+      const oi = parseDate(e.fecha_inicio).getTime();
+      const ot = parseDate(e.fecha_termino).getTime();
+      if (Number.isFinite(oi)) times.push(oi);
+      if (Number.isFinite(ot)) times.push(ot);
+      const segs = resolverSegmentosGanttEntregable(e, {
+        horasReales: horasRealesPorEnt.get(e.id),
+      });
+      for (const s of segs.segmentos) {
+        const a = parseDate(s.desde).getTime();
+        const b = parseDate(s.hasta).getTime();
+        if (Number.isFinite(a)) times.push(a);
+        if (Number.isFinite(b)) times.push(b);
+      }
+    }
+    if (times.length === 0) return [];
+    const minDate = new Date(Math.min(...times));
+    let maxDate = new Date(Math.max(...times));
     minDate.setMonth(minDate.getMonth() - 1);
     maxDate.setMonth(maxDate.getMonth() + 1);
+
+    const cappedMax = new Date(minDate.getFullYear(), minDate.getMonth() + GANTT_TIMELINE_MAX_MONTHS, 1);
+    if (maxDate.getTime() > cappedMax.getTime()) {
+      maxDate = cappedMax;
+    }
     return generateMonths(minDate, maxDate);
-  }, [entregables]);
+  }, [entregables, horasRealesPorEnt]);
 
   /* ── grouping ── */
   const grouped = useMemo(() => {
@@ -468,6 +533,7 @@ export default function Gantt() {
     type: "project" | "deliverable",
     tooltipData?: TooltipState["data"],
     barColorOverride?: string,
+    opts?: { variant?: "solid" | "tentativo" | "real"; keySuffix?: string },
   ) => {
     const start = parseDate(item.fecha_inicio);
     const end = parseDate(item.fecha_termino);
@@ -485,14 +551,17 @@ export default function Gantt() {
 
     const width = Math.max((right - left) * 100, 2);
 
-    const color = barColorOverride ?? getStatusBarColor(item.estado);
+    const baseColor = barColorOverride ?? getStatusBarColor(item.estado);
+    const tentativo = opts?.variant === "tentativo";
+    const real = opts?.variant === "real";
+    const color = real ? "#1e3a5f" : baseColor;
     const height = type === "project" ? "12px" : "9px";
     const radius = type === "project" ? "4px" : "2px";
-    const opacity = type === "project" ? 0.9 : 0.8;
+    const opacity = tentativo ? 0.72 : type === "project" ? 0.9 : real ? 0.95 : 0.8;
 
     return (
       <div
-        key={`bar-${month.year}-${month.month}`}
+        key={`bar-${month.year}-${month.month}-${opts?.keySuffix ?? "main"}`}
         className="absolute"
         style={{
           top: "50%",
@@ -500,7 +569,11 @@ export default function Gantt() {
           left: `${left * 100}%`,
           width: `${width}%`,
           height,
-          background: color,
+          background: tentativo
+            ? `repeating-linear-gradient(-45deg, ${color}55, ${color}55 2px, ${color}22 2px, ${color}22 5px)`
+            : color,
+          border: tentativo ? `1.5px dashed ${color}` : undefined,
+          boxSizing: "border-box",
           borderRadius: radius,
           opacity,
           transition: "opacity .15s, filter .15s",
@@ -636,6 +709,27 @@ export default function Gantt() {
               <span className="text-[11px] text-t500">{item.label}</span>
             </div>
           ))}
+          <div className="flex items-center gap-[6px]">
+            <span
+              className="inline-block rounded-[3px]"
+              style={{ width: "22px", height: "8px", background: "#1e3a5f" }}
+            />
+            <span className="text-[11px] text-t500">Realizado (DIRECTA)</span>
+          </div>
+          <div className="flex items-center gap-[6px]">
+            <span
+              className="inline-block rounded-[3px]"
+              style={{
+                width: "22px",
+                height: "8px",
+                background:
+                  "repeating-linear-gradient(-45deg, #4F46E555, #4F46E555 2px, #4F46E522 2px, #4F46E522 5px)",
+                border: "1px dashed #4F46E5",
+                boxSizing: "border-box",
+              }}
+            />
+            <span className="text-[11px] text-t500">Tentativo (pausa)</span>
+          </div>
         </div>
       </div>
 
@@ -725,6 +819,10 @@ export default function Gantt() {
                                     .join(" · ");
                                   const liderNombre =
                                     profMap.get(ent.lider_id)?.trim() || "Sin líder definido";
+                                  const segs = resolverSegmentosGanttEntregable(ent, {
+                                    horasReales: horasRealesPorEnt.get(ent.id),
+                                  });
+                                  const cancelado = entregableEstaCancelado(ent);
 
                                   return (
                                     <article
@@ -735,14 +833,40 @@ export default function Gantt() {
                                         <p className="min-w-0 flex-1 text-[12px] font-medium leading-snug text-t900">
                                           {ent.nombre}
                                         </p>
-                                        <GanttStatusBadge estado={ent.estado} />
+                                        <div className="flex shrink-0 flex-col items-end gap-1">
+                                          <GanttStatusBadge estado={ent.estado} />
+                                          {segs.pausado && !cancelado ? (
+                                            <GanttPausadoBadge
+                                              tieneTentativo={segs.tieneTentativo}
+                                              inconsistente={segs.inconsistenciaFechaPausa}
+                                            />
+                                          ) : null}
+                                        </div>
                                       </div>
                                       {codeParts ? (
                                         <p className="mt-0.5 truncate text-[10px] text-t500">{codeParts}</p>
                                       ) : null}
                                       <p className="mt-1 font-mono text-[10px] text-t600">
-                                        {formatDateCL(ent.fecha_inicio)} → {formatDateCL(ent.fecha_termino)}
+                                        Oficial: {formatDateCL(ent.fecha_inicio)} → {formatDateCL(ent.fecha_termino)}
                                       </p>
+                                      {segs.pausado && segs.segmentos.length > 0 ? (
+                                        <p className="mt-0.5 text-[10px] text-sky-800">
+                                          {segs.segmentos
+                                            .map((s) => {
+                                              if (s.tipo === "TENTATIVO") {
+                                                return `Tentativo ${formatDateCL(s.desde)} → ${formatDateCL(s.hasta)}`;
+                                              }
+                                              if (s.tipo === "REAL") {
+                                                return `Real ${formatDateCL(s.desde)} → ${formatDateCL(s.hasta)} (${(s.horas_reales ?? 0).toLocaleString("es-CL", { maximumFractionDigits: 1 })} h)`;
+                                              }
+                                              if (s.tipo === "PLANIFICADO_PREVIO") {
+                                                return `Planificado hasta pausa ${formatDateCL(s.hasta)}`;
+                                              }
+                                              return `${formatDateCL(s.desde)} → ${formatDateCL(s.hasta)}`;
+                                            })
+                                            .join(" · ")}
+                                        </p>
+                                      ) : null}
                                       <p className="mt-1 text-[10px] text-t600">
                                         Real {Math.round(ent.avance_real * 100)}% · Teórico{" "}
                                         {Math.round(ent.avance_teorico * 100)}%
@@ -943,17 +1067,26 @@ export default function Gantt() {
                           {/* Deliverable Rows */}
                           {projectExpanded &&
                             deliverables.map((ent) => {
-                              const start = parseDate(ent.fecha_inicio);
-                              const end = parseDate(ent.fecha_termino);
                               const minM = new Date(months[0].year, months[0].month, 1);
                               const maxM = new Date(
                                 months[months.length - 1].year,
                                 months[months.length - 1].month,
                                 months[months.length - 1].days
                               );
-                              if (end < minM || start > maxM) return null;
+                              const segs = resolverSegmentosGanttEntregable(ent, {
+                                horasReales: horasRealesPorEnt.get(ent.id),
+                              });
+                              const oficialSolapa =
+                                parseDate(ent.fecha_termino) >= minM &&
+                                parseDate(ent.fecha_inicio) <= maxM;
+                              const segmentoSolapa = segs.segmentos.some((s) =>
+                                segmentoSolapaRango(s, minM, maxM),
+                              );
+                              if (!oficialSolapa && !segmentoSolapa) return null;
 
                               const projName = grouped.projectMap.get(ent.proyecto_id)?.nombre || "";
+                              const cancelado = entregableEstaCancelado(ent);
+                              const motivoPausa = (ent.motivo_pausa ?? "").trim();
 
                               return (
                                 <div key={ent.id} style={{ display: "contents" }}>
@@ -966,6 +1099,12 @@ export default function Gantt() {
                                       <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[10.5px] text-t700">
                                         {ent.nombre}
                                       </span>
+                                      {segs.pausado && !cancelado ? (
+                                        <GanttPausadoBadge
+                                          tieneTentativo={segs.tieneTentativo}
+                                          inconsistente={segs.inconsistenciaFechaPausa}
+                                        />
+                                      ) : null}
                                       <GanttStatusBadge estado={ent.estado} />
                                     </div>
                                   </div>
@@ -976,21 +1115,87 @@ export default function Gantt() {
                                       className="relative border-b border-[#EDE9FE]"
                                       style={{ background: "white" }}
                                     >
-                                      {renderBarInCell(
-                                        ent,
-                                        m,
-                                        "deliverable",
-                                        {
-                                          title: ent.nombre,
-                                          proyecto: projName,
-                                          estado: ent.estado,
-                                          inicio: formatDateCL(ent.fecha_inicio),
-                                          termino: formatDateCL(ent.fecha_termino),
-                                          avance: `${Math.round(ent.avance_real * 100)}%`,
-                                          ufPresup: `${ent.uf_presupuestadas.toLocaleString("es-CL")} UF`,
-                                          ufCons: `${ent.uf_consumidas.toLocaleString("es-CL")} UF`,
-                                        }
-                                      )}
+                                      {segs.segmentos.map((seg, segIdx) => {
+                                        const isTentativo = seg.tipo === "TENTATIVO";
+                                        const isReal = seg.tipo === "REAL";
+                                        const isPlanificado = seg.tipo === "PLANIFICADO_PREVIO";
+                                        const tooltipData: TooltipState["data"] = isTentativo
+                                          ? {
+                                              title: ent.nombre,
+                                              proyecto: projName,
+                                              estado: "PAUSADO · Programación tentativa",
+                                              inicio: formatDateCL(seg.desde),
+                                              termino: formatDateCL(seg.hasta),
+                                              labelInicio: "Reinicio tentativo",
+                                              labelTermino: "Término tentativo",
+                                              avance: `${Math.round(ent.avance_real * 100)}%`,
+                                              ufPresup: `${ent.uf_presupuestadas.toLocaleString("es-CL")} UF`,
+                                              ufCons: `${ent.uf_consumidas.toLocaleString("es-CL")} UF`,
+                                              motivoPausa: motivoPausa || undefined,
+                                              nota: "Programación tentativa",
+                                            }
+                                          : isReal
+                                            ? {
+                                                title: ent.nombre,
+                                                proyecto: projName,
+                                                estado: "PAUSADO",
+                                                inicio: formatDateCL(seg.desde),
+                                                termino: formatDateCL(seg.hasta),
+                                                labelInicio: "Primera hora real",
+                                                labelTermino: "Última hora real",
+                                                avance: `${Math.round(ent.avance_real * 100)}%`,
+                                                ufPresup: `${ent.uf_presupuestadas.toLocaleString("es-CL")} UF`,
+                                                ufCons: `${ent.uf_consumidas.toLocaleString("es-CL")} UF`,
+                                                motivoPausa: motivoPausa || undefined,
+                                                horasReales: `${(seg.horas_reales ?? 0).toLocaleString("es-CL", { maximumFractionDigits: 1 })} h`,
+                                                nota: "Tramo realizado (DIRECTA hasta pausa)",
+                                              }
+                                            : isPlanificado
+                                              ? {
+                                                  title: ent.nombre,
+                                                  proyecto: projName,
+                                                  estado: "PAUSADO",
+                                                  inicio: formatDateCL(seg.desde),
+                                                  termino: formatDateCL(seg.hasta),
+                                                  labelInicio: "Inicio oficial",
+                                                  labelTermino: "Fecha de pausa",
+                                                  avance: `${Math.round(ent.avance_real * 100)}%`,
+                                                  ufPresup: `${ent.uf_presupuestadas.toLocaleString("es-CL")} UF`,
+                                                  ufCons: `${ent.uf_consumidas.toLocaleString("es-CL")} UF`,
+                                                  motivoPausa: motivoPausa || undefined,
+                                                  nota: "Tramo planificado previo (sin horas DIRECTA)",
+                                                }
+                                              : {
+                                                  title: ent.nombre,
+                                                  proyecto: projName,
+                                                  estado: ent.estado,
+                                                  inicio: formatDateCL(ent.fecha_inicio),
+                                                  termino: formatDateCL(ent.fecha_termino),
+                                                  avance: `${Math.round(ent.avance_real * 100)}%`,
+                                                  ufPresup: `${ent.uf_presupuestadas.toLocaleString("es-CL")} UF`,
+                                                  ufCons: `${ent.uf_consumidas.toLocaleString("es-CL")} UF`,
+                                                };
+
+                                        return renderBarInCell(
+                                          {
+                                            fecha_inicio: seg.desde,
+                                            fecha_termino: seg.hasta,
+                                            estado: ent.estado,
+                                          },
+                                          m,
+                                          "deliverable",
+                                          tooltipData,
+                                          undefined,
+                                          {
+                                            variant: isTentativo
+                                              ? "tentativo"
+                                              : isReal
+                                                ? "real"
+                                                : "solid",
+                                            keySuffix: `${seg.tipo}-${segIdx}`,
+                                          },
+                                        );
+                                      })}
                                     </div>
                                   ))}
                                 </div>
@@ -1059,13 +1264,32 @@ export default function Gantt() {
                 <span className="font-semibold text-t700">{tooltip.data.estado}</span>
               </div>
               <div className="flex justify-between gap-3 text-[11px]">
-                <span className="text-t500">Inicio</span>
+                <span className="text-t500">{tooltip.data.labelInicio ?? "Inicio"}</span>
                 <span className="font-semibold text-t700">{tooltip.data.inicio}</span>
               </div>
               <div className="flex justify-between gap-3 text-[11px]">
-                <span className="text-t500">Término</span>
+                <span className="text-t500">{tooltip.data.labelTermino ?? "Término"}</span>
                 <span className="font-semibold text-t700">{tooltip.data.termino}</span>
               </div>
+              {tooltip.data.horasReales ? (
+                <div className="flex justify-between gap-3 text-[11px]">
+                  <span className="text-t500">Horas reales</span>
+                  <span className="font-semibold text-t700">{tooltip.data.horasReales}</span>
+                </div>
+              ) : null}
+              {tooltip.data.motivoPausa ? (
+                <div className="flex justify-between gap-3 text-[11px]">
+                  <span className="text-t500">Motivo pausa</span>
+                  <span className="max-w-[140px] text-right font-semibold text-t700">
+                    {tooltip.data.motivoPausa}
+                  </span>
+                </div>
+              ) : null}
+              {tooltip.data.nota ? (
+                <div className="mt-1 rounded-[4px] bg-sky-50 px-1.5 py-1 text-[10px] font-semibold text-sky-900">
+                  {tooltip.data.nota}
+                </div>
+              ) : null}
               <div className="flex justify-between gap-3 text-[11px]">
                 <span className="text-t500">Avance</span>
                 <span className="font-semibold text-t700">{tooltip.data.avance}</span>

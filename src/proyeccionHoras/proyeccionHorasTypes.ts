@@ -10,9 +10,16 @@ export type ProyeccionHorasFactorCargabilidadPct = 100 | 90 | 85 | 80;
 export type ProyeccionHorasMesCell = {
   /** YYYY-MM */
   mes: string;
+  /** Horas proyectadas del saldo (carga futura). */
   horas: number;
   /** Días hábiles (lun–vie) del entregable en este mes. */
   dias_habiles: number;
+  /**
+   * Horas DIRECTA históricas en el mes (información; no suma a carga/utilización/brecha).
+   * Para pausados: incluye solo hasta fecha_pausa en el desglose principal del tramo;
+   * el read model puede rellenar desde `horas_reales_por_mes` (hasta pausa) o todas.
+   */
+  horas_reales?: number;
 };
 
 export type ProyeccionHorasEntregableRow = {
@@ -49,6 +56,16 @@ export type ProyeccionHorasEntregableRow = {
    * No incluye calendario pasado: ese saldo se replanifica desde fecha_consulta.
    */
   horas_fuera_horizonte: number;
+  /** true si la ventana de proyección viene de fechas tentativas de pausa. */
+  proyeccion_tentativa?: boolean;
+  /** Entregable con marca operativa pausado (aunque proyecte por tentativas). */
+  pausado?: boolean;
+  /** Total DIRECTA válida (gasto real). No forma parte de la carga proyectada. */
+  horas_reales_total?: number;
+  /** DIRECTA con fecha <= fecha_pausa (si pausado). */
+  horas_reales_hasta_pausa?: number;
+  primera_fecha_hora_real?: string | null;
+  ultima_fecha_hora_real?: string | null;
   meses: ProyeccionHorasMesCell[];
 };
 
@@ -77,6 +94,9 @@ export type ProyeccionHorasObservacion = {
     | "COMPLETADO"
     | "PROYECTO_NO_ACTIVO"
     | "ENTREGABLE_CANCELADO"
+    | "SALDO_PAUSADO_SIN_PROGRAMACION"
+    | "PAUSA_FECHAS_TENTATIVAS_INVALIDAS"
+    | "HORAS_POSTERIORES_A_PAUSA"
     | "FUERA_HORIZONTE"
     | "SIN_DIAS_HABILES"
     /** Término del entregable anterior a fecha de consulta; saldo no se proyecta al pasado. */
@@ -157,7 +177,13 @@ export type ProyeccionHorasSnapshot = {
     excluidos_sin_dias_habiles: number;
     /** Término anterior a fecha_consulta con saldo pendiente (no proyectable al pasado). */
     excluidos_saldo_vencido: number;
+    /** Pausados sin ventana tentativa (saldo no anulado, no proyectado). */
+    pausados_sin_programacion: number;
+    pausados_fechas_tentativas_invalidas: number;
   };
+  /** Saldo pendiente de entregables pausados sin fechas tentativas (no entra a carga mensual). */
+  horas_pausadas_sin_programacion: number;
+  entregables_pausados_sin_programacion: number;
   /** Trazabilidad de curvas usadas en la comparación. */
   curvas_usadas: {
     anio: number;

@@ -522,6 +522,15 @@ function buildHojaResumenWsp(wb: ExcelJS.Workbook, snapshot: ProyeccionHorasSnap
 
   rowExec += 1;
   ws.mergeCells(rowExec, 1, rowExec, 13);
+  const pausaCell = ws.getCell(rowExec, 1);
+  pausaCell.value = `HORAS PAUSADAS SIN PROGRAMACIÓN: ${snapshot.horas_pausadas_sin_programacion.toLocaleString("es-CL", { maximumFractionDigits: 1 })} h (${snapshot.entregables_pausados_sin_programacion} entregable(s)). No forman parte de la carga proyectada, utilización ni brecha mensual.`;
+  pausaCell.font = { size: 10, bold: true, color: { argb: "FF0369A1" } };
+  pausaCell.alignment = { wrapText: true, vertical: "middle" };
+  ws.getRow(rowExec).height = 28;
+  rowExec += 1;
+
+  rowExec += 1;
+  ws.mergeCells(rowExec, 1, rowExec, 13);
   ws.getCell(rowExec, 1).value =
     "Nota técnica: ExcelJS no genera gráficos nativos embebidos; use las tablas mensuales/acumuladas para crear gráficos en Excel.";
   ws.getCell(rowExec, 1).font = { size: 8, italic: true, color: { argb: "FF64748B" } };

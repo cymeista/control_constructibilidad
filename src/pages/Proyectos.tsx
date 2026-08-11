@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { EntregableRedistribuirHorasTrigger } from "@/components/EntregableRedistribuirHorasTrigger";
 import EntregableNotaSeguimientoModal from "@/components/EntregableNotaSeguimientoModal";
 import EntregableCancelarModal from "@/components/EntregableCancelarModal";
+import EntregablePausarModal from "@/components/EntregablePausarModal";
 import EquipoEntregableSection from "@/components/EquipoEntregableSection";
 import EntregableFechasSection from "@/components/proyectos/EntregableFechasSection";
 import { useAppData, type Profesional, type PmInterno } from "@/context/AppDataContext";
@@ -45,6 +46,10 @@ import {
   calcularSaldoAnuladoHoras,
   entregableEstaCancelado,
 } from "@/entregables/entregableCancelacion";
+import {
+  buildPatchReactivarPausaEntregable,
+  entregableEstaPausado,
+} from "@/entregables/entregablePausa";
 import {
   claseBadgeAlertaActiva,
   entregableTieneAlertasActivas,
@@ -227,6 +232,7 @@ export default function Proyectos() {
   const [drawerRow, setDrawerRow] = useState<EntregableVistaAnalisis | null>(null);
   const [notaEnt, setNotaEnt] = useState<EntregableVistaAnalisis | null>(null);
   const [cancelarEnt, setCancelarEnt] = useState<EntregableVistaAnalisis | null>(null);
+  const [pausarEnt, setPausarEnt] = useState<EntregableVistaAnalisis | null>(null);
 
   const pmMap = useMemo(() => new Map(pm_internos.map((p: PmInterno) => [p.id, p])), [pm_internos]);
   const profMap = useMemo(() => new Map(profesionales.map((p: Profesional) => [p.id, p])), [profesionales]);
@@ -402,11 +408,35 @@ export default function Proyectos() {
   );
 
   const confirmarCancelarEntregable = useCallback(
-    (patch: { cancelado: true; fecha_cancelacion: string; motivo_cancelacion: string }) => {
+    (patch: {
+      cancelado: true;
+      fecha_cancelacion: string;
+      motivo_cancelacion: string;
+      pausado: false;
+      fecha_pausa: null;
+      motivo_pausa: null;
+      fecha_reinicio_tentativa: null;
+      fecha_termino_tentativa: null;
+    }) => {
       if (!puedeCancelarEntregable || !cancelarEnt) return;
       updateEntregable(cancelarEnt.entregable.id, patch);
     },
     [puedeCancelarEntregable, cancelarEnt, updateEntregable],
+  );
+
+  const confirmarPausarEntregable = useCallback(
+    (patch: {
+      pausado: true;
+      fecha_pausa: string;
+      motivo_pausa: string;
+      fecha_reinicio_tentativa: string | null;
+      fecha_termino_tentativa: string | null;
+    }) => {
+      if (!puedeCancelarEntregable || !pausarEnt) return;
+      if (entregableEstaCancelado(pausarEnt.entregable)) return;
+      updateEntregable(pausarEnt.entregable.id, patch);
+    },
+    [puedeCancelarEntregable, pausarEnt, updateEntregable],
   );
 
   const reactivarEntregable = useCallback(
@@ -416,6 +446,21 @@ export default function Proyectos() {
         return;
       }
       updateEntregable(entregableId, buildPatchReactivarEntregable());
+    },
+    [puedeCancelarEntregable, updateEntregable],
+  );
+
+  const reactivarPausaEntregable = useCallback(
+    (entregableId: string) => {
+      if (!puedeCancelarEntregable) return;
+      if (
+        !window.confirm(
+          "La reactivación quitará la condición PAUSADO. Las fechas oficiales del entregable no serán modificadas.",
+        )
+      ) {
+        return;
+      }
+      updateEntregable(entregableId, buildPatchReactivarPausaEntregable());
     },
     [puedeCancelarEntregable, updateEntregable],
   );
@@ -799,6 +844,11 @@ export default function Proyectos() {
                                                     Cancelado
                                                   </span>
                                                 ) : null}
+                                                {entregableEstaPausado(e) ? (
+                                                  <span className="rounded-r4 bg-sky-800 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                                                    Pausado
+                                                  </span>
+                                                ) : null}
                                               </div>
                                             </button>
                                             <div className="border-t border-bdr/80 px-3 pb-3">
@@ -965,6 +1015,11 @@ export default function Proyectos() {
                                                 {entregableEstaCancelado(e) ? (
                                                   <span className="ml-1.5 inline-block rounded-r4 bg-slate-800 px-1 py-0.5 text-[8px] font-bold uppercase text-white">
                                                     Cancelado
+                                                  </span>
+                                                ) : null}
+                                                {entregableEstaPausado(e) ? (
+                                                  <span className="ml-1.5 inline-block rounded-r4 bg-sky-800 px-1 py-0.5 text-[8px] font-bold uppercase text-white">
+                                                    Pausado
                                                   </span>
                                                 ) : null}
                                               </td>
@@ -1144,6 +1199,11 @@ export default function Proyectos() {
                           Cancelado
                         </span>
                       ) : null}
+                      {entregableEstaPausado(drawerRowLive.entregable) ? (
+                        <span className="rounded-r4 bg-sky-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                          Pausado
+                        </span>
+                      ) : null}
                     </dd>
                     {entregableEstaCancelado(drawerRowLive.entregable) ? (
                       <>
@@ -1151,6 +1211,26 @@ export default function Proyectos() {
                         <dd className="text-t800">{fmtDate(drawerRowLive.entregable.fecha_cancelacion ?? null)}</dd>
                         <dt className="text-t500">Motivo cancelación</dt>
                         <dd className="text-t800">{drawerRowLive.entregable.motivo_cancelacion?.trim() || "—"}</dd>
+                      </>
+                    ) : null}
+                    {entregableEstaPausado(drawerRowLive.entregable) ? (
+                      <>
+                        <dt className="text-t500">Fecha de pausa</dt>
+                        <dd className="text-t800">{fmtDate(drawerRowLive.entregable.fecha_pausa ?? null)}</dd>
+                        <dt className="text-t500">Motivo de pausa</dt>
+                        <dd className="text-t800">{drawerRowLive.entregable.motivo_pausa?.trim() || "—"}</dd>
+                        <dt className="text-t500">Reinicio tentativo</dt>
+                        <dd className="text-t800">
+                          {drawerRowLive.entregable.fecha_reinicio_tentativa
+                            ? fmtDate(drawerRowLive.entregable.fecha_reinicio_tentativa)
+                            : "Sin programación"}
+                        </dd>
+                        <dt className="text-t500">Término tentativo</dt>
+                        <dd className="text-t800">
+                          {drawerRowLive.entregable.fecha_termino_tentativa
+                            ? fmtDate(drawerRowLive.entregable.fecha_termino_tentativa)
+                            : "Sin programación"}
+                        </dd>
                       </>
                     ) : null}
                     <dt className="text-t500">Fechas</dt>
@@ -1324,6 +1404,41 @@ export default function Proyectos() {
                       <LayoutList size={14} /> Detalle formulario
                     </Button>
                   ) : null}
+                  {puedeCancelarEntregable &&
+                  !entregableEstaCancelado(drawerRowLive.entregable) &&
+                  !entregableEstaPausado(drawerRowLive.entregable) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] gap-1 border-sky-200 text-[11px] text-sky-900 md:min-h-0"
+                      onClick={() => setPausarEnt(drawerRowLive)}
+                    >
+                      Poner en pausa
+                    </Button>
+                  ) : null}
+                  {puedeCancelarEntregable && entregableEstaPausado(drawerRowLive.entregable) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] gap-1 border-sky-200 text-[11px] text-sky-900 md:min-h-0"
+                      onClick={() => setPausarEnt(drawerRowLive)}
+                    >
+                      Editar pausa
+                    </Button>
+                  ) : null}
+                  {puedeCancelarEntregable && entregableEstaPausado(drawerRowLive.entregable) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] gap-1 text-[11px] md:min-h-0"
+                      onClick={() => reactivarPausaEntregable(drawerRowLive.entregable.id)}
+                    >
+                      Reactivar entregable
+                    </Button>
+                  ) : null}
                   {puedeCancelarEntregable && !entregableEstaCancelado(drawerRowLive.entregable) ? (
                     <Button
                       type="button"
@@ -1374,6 +1489,19 @@ export default function Proyectos() {
         saldoPendienteHoras={cancelarEnt?.saldoHoras ?? 0}
         onClose={() => setCancelarEnt(null)}
         onConfirm={confirmarCancelarEntregable}
+      />
+      <EntregablePausarModal
+        open={pausarEnt != null}
+        entregable={pausarEnt?.entregable ?? null}
+        clienteNombre={pausarEnt?.cliente.nombre ?? ""}
+        proyectoNombre={
+          pausarEnt ? `${pausarEnt.proyecto.codigo} · ${pausarEnt.proyecto.nombre}` : ""
+        }
+        modoEdicion={
+          pausarEnt != null ? entregableEstaPausado(pausarEnt.entregable) : false
+        }
+        onClose={() => setPausarEnt(null)}
+        onConfirm={confirmarPausarEntregable}
       />
     </div>
   );

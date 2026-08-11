@@ -336,23 +336,23 @@ export default function GanttHoras() {
         <div className={kpiDashboardSingleRowItemClassName}>
           <KpiCard
             compact
-            label="Entregables"
-            value={String(snapshot.conteos.entregables_proyectados)}
-            subtitle="Proyectados"
-            topColor="#475569"
+            label="Horas pausadas"
+            value={fmtH(snapshot.horas_pausadas_sin_programacion)}
+            subtitle={
+              snapshot.entregables_pausados_sin_programacion > 0
+                ? `${snapshot.entregables_pausados_sin_programacion} sin programación`
+                : "Sin programación"
+            }
+            topColor="#0369A1"
           />
         </div>
         <div className={kpiDashboardSingleRowItemClassName}>
           <KpiCard
             compact
-            label="Observaciones críticas"
-            value={String(obsClasificadas.criticas.length)}
-            subtitle={
-              obsClasificadas.nCompletados > 0
-                ? `${obsClasificadas.nCompletados} completados ocultos`
-                : "Accionables"
-            }
-            topColor={obsClasificadas.criticas.length > 0 ? "#B45309" : "#64748B"}
+            label="Entregables"
+            value={String(snapshot.conteos.entregables_proyectados)}
+            subtitle="Proyectados"
+            topColor="#475569"
           />
         </div>
       </div>
@@ -366,7 +366,7 @@ export default function GanttHoras() {
                 <th className={`${stickyLeft} bg-surface2 p-2 font-semibold`}>Cliente / Proyecto / Entregable</th>
                 <th className="p-2 font-semibold whitespace-nowrap">Inicio</th>
                 <th className="p-2 font-semibold whitespace-nowrap">Término</th>
-                <th className="p-2 font-semibold whitespace-nowrap">Inicio ef.</th>
+                <th className="p-2 font-semibold whitespace-nowrap">Proyección ef.</th>
                 <th className="p-2 text-right font-semibold whitespace-nowrap">Saldo h</th>
                 {snapshot.meses_horizonte.map((mes) => (
                   <th key={mes} className="p-2 text-right font-semibold whitespace-nowrap">
@@ -620,18 +620,98 @@ function GrupoProyectoRows({
             {e.entregable_codigo ? (
               <span className="ml-1 font-mono text-[10px] text-t400">{e.entregable_codigo}</span>
             ) : null}
+            {e.pausado && e.proyeccion_tentativa ? (
+              <span className="ml-1.5 inline-block rounded-r4 bg-sky-800/90 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+                Pausado · proyección tentativa
+              </span>
+            ) : e.pausado ? (
+              <span className="ml-1.5 inline-block rounded-r4 bg-sky-800/90 px-1 py-0.5 text-[8px] font-bold uppercase text-white">
+                Pausado
+              </span>
+            ) : null}
+            {e.pausado && (e.horas_reales_total ?? 0) > 1e-9 ? (
+              <span className="mt-0.5 block text-[9px] text-t600">
+                Gasto real: {fmtH(e.horas_reales_total ?? 0)}
+                {(e.horas_reales_hasta_pausa ?? 0) > 1e-9 &&
+                Math.abs((e.horas_reales_hasta_pausa ?? 0) - (e.horas_reales_total ?? 0)) > 0.05
+                  ? ` · hasta pausa ${fmtH(e.horas_reales_hasta_pausa ?? 0)}`
+                  : null}
+                {" · "}
+                Saldo: {fmtH(e.saldo_horas_total)}
+              </span>
+            ) : e.pausado ? (
+              <span className="mt-0.5 block text-[9px] text-t600">
+                Gasto real: 0 h · Saldo: {fmtH(e.saldo_horas_total)}
+              </span>
+            ) : null}
+            {e.pausado &&
+            (e.horas_reales_hasta_pausa ?? 0) > 1e-9 &&
+            !e.meses.some((m) => (m.horas_reales ?? 0) > 1e-9) ? (
+              <span className="mt-0.5 block text-[9px] text-sky-900">
+                Real gastado hasta pausa: {fmtH(e.horas_reales_hasta_pausa ?? 0)} (fuera del horizonte
+                visible)
+              </span>
+            ) : null}
           </td>
           <td className="p-2 font-mono whitespace-nowrap text-[10px]">{fmtFechaCorta(e.fecha_inicio)}</td>
           <td className="p-2 font-mono whitespace-nowrap text-[10px]">{fmtFechaCorta(e.fecha_termino)}</td>
           <td className="p-2 font-mono whitespace-nowrap text-[10px]">
-            {fmtFechaCorta(e.fecha_inicio_efectiva)}
+            <span>
+              {fmtFechaCorta(e.fecha_inicio_efectiva)} → {fmtFechaCorta(e.fecha_termino_efectiva)}
+            </span>
+            {e.proyeccion_tentativa ? (
+              <span className="mt-0.5 block text-[8px] font-semibold uppercase text-sky-800">Tentativo</span>
+            ) : null}
           </td>
           <td className="p-2 text-right font-mono tabular-nums">{fmtH(e.saldo_horas_total)}</td>
-          {e.meses.map((m) => (
-            <td key={m.mes} className="p-2 text-right font-mono tabular-nums">
-              {m.horas > 1e-9 ? fmtH(m.horas) : "—"}
-            </td>
-          ))}
+          {e.meses.map((m) => {
+            const proy = m.horas;
+            const real = m.horas_reales ?? 0;
+            const hasProy = proy > 1e-9;
+            const hasReal = real > 1e-9;
+            if (!hasProy && !hasReal) {
+              return (
+                <td key={m.mes} className="p-2 text-right font-mono tabular-nums text-t400">
+                  —
+                </td>
+              );
+            }
+            if (hasProy && !hasReal) {
+              return (
+                <td key={m.mes} className="p-2 text-right font-mono tabular-nums">
+                  {fmtH(proy)}
+                </td>
+              );
+            }
+            if (!hasProy && hasReal) {
+              return (
+                <td
+                  key={m.mes}
+                  className="p-2 text-right font-mono text-[10px] tabular-nums text-slate-700"
+                  title={`Real ${fmtH(real)} (histórico; no suma a carga proyectada)`}
+                >
+                  <span className="text-[8px] font-semibold uppercase text-slate-500">R </span>
+                  {fmtH(real)}
+                </td>
+              );
+            }
+            return (
+              <td
+                key={m.mes}
+                className="p-1.5 text-right font-mono text-[10px] leading-tight tabular-nums"
+                title={`Real ${fmtH(real)} · Proyectado ${fmtH(proy)}`}
+              >
+                <span className="block text-slate-700">
+                  <span className="text-[8px] font-semibold uppercase text-slate-500">R </span>
+                  {fmtH(real)}
+                </span>
+                <span className="block text-t800">
+                  <span className="text-[8px] font-semibold uppercase text-sky-800">P </span>
+                  {fmtH(proy)}
+                </span>
+              </td>
+            );
+          })}
         </tr>
       ))}
     </>

@@ -20,6 +20,11 @@ type Props = {
     cancelado: true;
     fecha_cancelacion: string;
     motivo_cancelacion: string;
+    pausado: false;
+    fecha_pausa: null;
+    motivo_pausa: null;
+    fecha_reinicio_tentativa: null;
+    fecha_termino_tentativa: null;
   }) => void;
 };
 

@@ -26,6 +26,14 @@ import {
   entregableEstaCancelado,
 } from "@/entregables/entregableCancelacion";
 import {
+  entregableEstaPausado,
+  resolverVentanaTentativaPausa,
+} from "@/entregables/entregablePausa";
+import {
+  buildHorasRealesPorEntregable,
+  horasRealesEntregableOrEmpty,
+} from "@/entregables/horasRealesEntregable";
+import {
   buildControlCategoriasEntregable,
   gastoRealPorCategoriaDesdeMapaProf,
   presupuestoCategoriaEntregable,
@@ -255,7 +263,19 @@ export function buildProyeccionHorasSnapshot(
     excluidos_fuera_horizonte: 0,
     excluidos_sin_dias_habiles: 0,
     excluidos_saldo_vencido: 0,
+    pausados_sin_programacion: 0,
+    pausados_fechas_tentativas_invalidas: 0,
   };
+
+  let horas_pausadas_sin_programacion = 0;
+  let entregables_pausados_sin_programacion = 0;
+
+  const horasRealesPorEnt = buildHorasRealesPorEntregable(
+    data.registro_horas,
+    data.entregables,
+    data.proyectos,
+    data.profesionales,
+  );
 
   const entregablesOut: ProyeccionHorasEntregableRow[] = [];
 
@@ -263,6 +283,7 @@ export function buildProyeccionHorasSnapshot(
     const pr = projMap.get(ent.proyecto_id);
     const cl = pr ? cliMap.get(pr.cliente_id) : undefined;
     const labelProj = pr?.codigo ?? "—";
+    const hr = horasRealesEntregableOrEmpty(horasRealesPorEnt, ent.id);
 
     const pushObs = (
       codigo: ProyeccionHorasObservacion["codigo"],
@@ -275,6 +296,21 @@ export function buildProyeccionHorasSnapshot(
         proyecto_codigo: labelProj,
         detalle,
       });
+    };
+
+    const pushObsHorasPosterioresPausa = () => {
+      if (!entregableEstaPausado(ent)) return;
+      if (hr.horas_posteriores_a_pausa <= 1e-9) return;
+      pushObs(
+        "HORAS_POSTERIORES_A_PAUSA",
+        [
+          `Cliente: ${cl?.nombre ?? "—"}.`,
+          `Proyecto: ${labelProj} · ${pr?.nombre ?? "—"}.`,
+          `${hr.horas_posteriores_a_pausa.toFixed(1)} h DIRECTA con fecha posterior a la pausa ${(ent.fecha_pausa ?? "").trim() || "—"}.`,
+          `Rango: ${hr.primera_fecha_posterior_pausa ?? "—"} → ${hr.ultima_fecha_posterior_pausa ?? "—"}.`,
+          `No se modificaron registros; revisar consistencia de datos.`,
+        ].join(" "),
+      );
     };
 
     if (entregableEstaCancelado(ent)) {
@@ -324,19 +360,78 @@ export function buildProyeccionHorasSnapshot(
       continue;
     }
 
-    const fechas = fechasEntregableValidas(ent);
-    if (!fechas.ok) {
-      conteos.excluidos_sin_fechas += 1;
-      pushObs(
-        fechas.motivo,
-        fechas.motivo === "SIN_FECHAS"
-          ? "Falta fecha_inicio o fecha_termino del entregable (mismas que Gantt Proyectos)."
-          : "Fechas de entregable inválidas o inicio > término.",
-      );
-      continue;
+    const pausado = entregableEstaPausado(ent);
+    let fechaInicioOficial = (ent.fecha_inicio ?? "").trim();
+    let fechaTerminoOficial = (ent.fecha_termino ?? "").trim();
+    let fecha_inicio_ventana: string;
+    let fecha_termino_ventana: string;
+    let proyeccion_tentativa = false;
+
+    if (pausado) {
+      pushObsHorasPosterioresPausa();
+      const tent = resolverVentanaTentativaPausa(ent);
+      if (!tent.ok && tent.motivo === "SIN_PROGRAMACION") {
+        const saldoRound = Math.round(saldo_horas_total * 100) / 100;
+        horas_pausadas_sin_programacion += saldoRound;
+        entregables_pausados_sin_programacion += 1;
+        conteos.pausados_sin_programacion += 1;
+        pushObs(
+          "SALDO_PAUSADO_SIN_PROGRAMACION",
+          [
+            `Cliente: ${cl?.nombre ?? "—"}.`,
+            `Proyecto: ${labelProj} · ${pr?.nombre ?? "—"}.`,
+            `Estado: PAUSADO SIN PROGRAMACIÓN.`,
+            `Saldo pendiente: ${saldoRound.toFixed(1)} h (no anulado; no proyectado).`,
+            `Gasto real DIRECTA: ${hr.horas_reales_total.toFixed(1)} h (hasta pausa: ${hr.horas_reales_hasta_pausa.toFixed(1)} h).`,
+            `Fecha pausa: ${(ent.fecha_pausa ?? "").trim() || "—"}.`,
+            `Motivo: ${(ent.motivo_pausa ?? "").trim() || "—"}.`,
+          ].join(" "),
+        );
+        continue;
+      }
+      if (!tent.ok) {
+        conteos.pausados_fechas_tentativas_invalidas += 1;
+        pushObs(
+          "PAUSA_FECHAS_TENTATIVAS_INVALIDAS",
+          [
+            `Cliente: ${cl?.nombre ?? "—"}.`,
+            `Proyecto: ${labelProj} · ${pr?.nombre ?? "—"}.`,
+            `Saldo pendiente: ${saldo_horas_total.toFixed(1)} h (no anulado; no proyectado).`,
+            `Gasto real DIRECTA: ${hr.horas_reales_total.toFixed(1)} h.`,
+            tent.detalle,
+            `Fecha pausa: ${(ent.fecha_pausa ?? "").trim() || "—"}.`,
+          ].join(" "),
+        );
+        continue;
+      }
+      fecha_inicio_ventana = tent.reinicio;
+      fecha_termino_ventana = tent.termino;
+      proyeccion_tentativa = true;
+      if (!fechaInicioOficial) fechaInicioOficial = tent.reinicio;
+      if (!fechaTerminoOficial) fechaTerminoOficial = tent.termino;
+    } else {
+      const fechas = fechasEntregableValidas(ent);
+      if (!fechas.ok) {
+        conteos.excluidos_sin_fechas += 1;
+        pushObs(
+          fechas.motivo,
+          fechas.motivo === "SIN_FECHAS"
+            ? "Falta fecha_inicio o fecha_termino del entregable (mismas que Gantt Proyectos)."
+            : "Fechas de entregable inválidas o inicio > término.",
+        );
+        continue;
+      }
+      fechaInicioOficial = fechas.inicio;
+      fechaTerminoOficial = fechas.termino;
+      fecha_inicio_ventana = fechas.inicio;
+      fecha_termino_ventana = fechas.termino;
     }
 
-    const ventana = resolverVentanaProyeccionEfectiva(fechas.inicio, fechas.termino, fecha_consulta);
+    const ventana = resolverVentanaProyeccionEfectiva(
+      fecha_inicio_ventana,
+      fecha_termino_ventana,
+      fecha_consulta,
+    );
     if (!ventana.ok) {
       if (ventana.motivo === "VENCIDO") {
         conteos.excluidos_saldo_vencido += 1;
@@ -388,10 +483,12 @@ export function buildProyeccionHorasSnapshot(
 
     const mesesCompletos = meses_horizonte.map((mes) => {
       const hit = dist.meses.find((m) => m.mes === mes);
+      const realesMes = hr.horas_reales_por_mes_todas[mes] ?? 0;
       return {
         mes,
         horas: hit?.horas ?? 0,
         dias_habiles: hit?.dias_habiles ?? 0,
+        horas_reales: realesMes > 1e-9 ? realesMes : 0,
       };
     });
     const horas_en_horizonte = Math.round(mesesCompletos.reduce((s, m) => s + m.horas, 0) * 100) / 100;
@@ -414,8 +511,8 @@ export function buildProyeccionHorasSnapshot(
       entregable_codigo: (ent.fase_codigo ?? "").trim(),
       entregable_nombre: ent.nombre,
       entregable_estado: String(ent.estado ?? ""),
-      fecha_inicio: fechas.inicio,
-      fecha_termino: fechas.termino,
+      fecha_inicio: fechaInicioOficial,
+      fecha_termino: fechaTerminoOficial,
       fecha_inicio_efectiva: ventana.fecha_inicio_efectiva,
       fecha_termino_efectiva: ventana.fecha_termino_efectiva,
       saldo_horas_total: Math.round(saldo_horas_total * 100) / 100,
@@ -425,6 +522,12 @@ export function buildProyeccionHorasSnapshot(
       saldo_l2: Math.round(saldos.l2 * 100) / 100,
       horas_en_horizonte,
       horas_fuera_horizonte,
+      proyeccion_tentativa,
+      pausado,
+      horas_reales_total: hr.horas_reales_total,
+      horas_reales_hasta_pausa: hr.horas_reales_hasta_pausa,
+      primera_fecha_hora_real: hr.primera_fecha_hora_real,
+      ultima_fecha_hora_real: hr.ultima_fecha_hora_real,
       meses: mesesCompletos,
     });
   }
@@ -537,6 +640,8 @@ export function buildProyeccionHorasSnapshot(
     comparacion_curva,
     observaciones,
     conteos,
+    horas_pausadas_sin_programacion: Math.round(horas_pausadas_sin_programacion * 100) / 100,
+    entregables_pausados_sin_programacion,
     curvas_usadas,
   };
 }

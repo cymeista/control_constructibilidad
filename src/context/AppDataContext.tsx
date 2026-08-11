@@ -216,6 +216,19 @@ export interface Entregable {
   /** YYYY-MM-DD; solo relevante si cancelado. */
   fecha_cancelacion?: string | null;
   motivo_cancelacion?: string | null;
+  /**
+   * Pausa operativa (Etapa A): no altera presupuesto, gasto, avance ni fechas oficiales.
+   * Backups antiguos sin el campo se tratan como no pausado.
+   * Mutuamente excluyente con `cancelado`.
+   */
+  pausado?: boolean;
+  /** YYYY-MM-DD. */
+  fecha_pausa?: string | null;
+  motivo_pausa?: string | null;
+  /** YYYY-MM-DD; planificación futura (no reemplaza fecha_inicio). */
+  fecha_reinicio_tentativa?: string | null;
+  /** YYYY-MM-DD; planificación futura (no reemplaza fecha_termino). */
+  fecha_termino_tentativa?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -274,6 +287,32 @@ function normalizeEntregableRow(e: Entregable, proyectos: Proyecto[]): Entregabl
       e.cancelado === true && typeof e.motivo_cancelacion === "string" && e.motivo_cancelacion.trim() !== ""
         ? e.motivo_cancelacion.trim()
         : null,
+    // Exclusión mutua: cancelado gana; backup sin campos ⇒ no pausado.
+    pausado: e.cancelado === true ? false : e.pausado === true,
+    fecha_pausa:
+      e.cancelado === true
+        ? null
+        : e.fecha_pausa != null && String(e.fecha_pausa).trim() !== ""
+          ? String(e.fecha_pausa).trim()
+          : null,
+    motivo_pausa:
+      e.cancelado === true
+        ? null
+        : typeof e.motivo_pausa === "string" && e.motivo_pausa.trim() !== ""
+          ? e.motivo_pausa.trim()
+          : null,
+    fecha_reinicio_tentativa:
+      e.cancelado === true
+        ? null
+        : e.fecha_reinicio_tentativa != null && String(e.fecha_reinicio_tentativa).trim() !== ""
+          ? String(e.fecha_reinicio_tentativa).trim()
+          : null,
+    fecha_termino_tentativa:
+      e.cancelado === true
+        ? null
+        : e.fecha_termino_tentativa != null && String(e.fecha_termino_tentativa).trim() !== ""
+          ? String(e.fecha_termino_tentativa).trim()
+          : null,
   };
 }
 
@@ -1525,6 +1564,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             "cancelado",
             "fecha_cancelacion",
             "motivo_cancelacion",
+            "pausado",
+            "fecha_pausa",
+            "motivo_pausa",
+            "fecha_reinicio_tentativa",
+            "fecha_termino_tentativa",
           ].includes(k),
         );
       const ts = now();
